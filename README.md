@@ -24,6 +24,10 @@ KCD:MP codec, used only by a compatibility test.
 - [kresby/kcdc/README.md](kresby/kcdc/README.md): module description, controls, settings (Czech).
 - [kresby/kcdc/AGENTS.md](kresby/kcdc/AGENTS.md): API for other resources, custom UI (`setUi`), architecture.
 
+## For AI agents
+
+See [AGENTS.md](AGENTS.md): layout, commands and rules for agents working in this repository.
+
 ## Source
 
 This repository is generated from the monorepo [gingygames/gingy-kcdc](https://github.com/gingygames/gingy-kcdc)
