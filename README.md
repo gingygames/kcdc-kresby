@@ -29,3 +29,7 @@ KCD:MP codec, used only by a compatibility test.
 This repository is generated from the monorepo [gingygames/gingy-kcdc](https://github.com/gingygames/gingy-kcdc)
 (`kresby/kcdc`) together with the shared code it compiles in (same folder layout). Details in [ZDROJ.md](ZDROJ.md).
 Report issues here; changes are made in gingy-kcdc and mirrored.
+
+## License
+
+MIT, see [LICENSE](LICENSE).
