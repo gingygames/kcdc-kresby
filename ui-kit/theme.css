@@ -1,0 +1,96 @@
+/* ui-kit/theme.css: sdílené tokeny vzhledu pro webové části modulů (F10, konzole, příchod, kresby, loutna, hospoda).
+   Dobový vzhled: inkoust (tmavé plochy), pergamen (světlé „papírové“ plochy a text), zlatá jako akcent.
+   Pravidla: README.md. Kontrasty hlídá `node ui-kit/check.mjs` (text aspoň 4,5:1, velké písmo a ovládací prvky aspoň 3:1).
+   Barvy jsou NEPRŮHLEDNÉ, aby text nikdy neplaval nad scénou hry. */
+
+:root {
+  /* inkoust: plochy */
+  --k-bg: #17130d;
+  --k-surface: #211b12;
+  --k-surface-2: #2c2418;
+  --k-raised: #372d1e;
+  --k-input: #120e08;
+  --k-line: #54462d;
+  --k-line-soft: #3b3122;
+  --k-scrim: rgba(8, 6, 3, 0.72);
+
+  /* pergamen: text na inkoustu */
+  --k-text: #f1e8d3;
+  --k-muted: #c0b498;
+  --k-faint: #9a8e74;          /* jen dekorace a vypnuté prvky, ne pro důležitý text */
+
+  /* akcent a stavy */
+  --k-accent: #e0aa4a;
+  --k-accent-hover: #edbd63;
+  --k-accent-ink: #1b1508;
+  --k-ok: #9ad586;
+  --k-warn: #efc562;
+  --k-err: #f49b8c;
+  --k-info: #93c8ea;
+  --k-err-solid: #b3392b;       /* plné tlačítko nebezpečné akce; bílý text 5,7:1 */
+  --k-err-solid-hover: #c4473a;
+  --k-on-solid: #ffffff;
+
+  /* pergamen: světlé papírové plochy (tvorba postavy, listiny) */
+  --k-paper: #efe3c4;
+  --k-paper-2: #e3d4ae;
+  --k-paper-text: #2b2113;
+  --k-paper-muted: #5a4a31;
+  --k-paper-line: #b8a273;
+  --k-paper-accent: #7a4a12;    /* odkazy a akcenty na papíru, 6,2:1 */
+
+  /* písmo */
+  --k-font: "Segoe UI", system-ui, -apple-system, sans-serif;
+  --k-font-serif: "Palatino Linotype", Palatino, Georgia, "Times New Roman", serif;
+  --k-font-mono: "Cascadia Mono", Consolas, "Courier New", monospace;
+  --k-scale: 1;                 /* násobek velikosti písma; kit.js ho nastaví podle výšky okna hry */
+  --k-fs: calc(15px * var(--k-scale));
+  --k-fs-sm: 0.857rem;
+  --k-fs-xs: 0.786rem;
+  --k-fs-lg: 1.143rem;
+  --k-fs-xl: 1.429rem;
+  --k-lh: 1.45;
+
+  /* mezery (osnova 4 px) */
+  --k-s1: 0.267rem;
+  --k-s2: 0.533rem;
+  --k-s3: 0.8rem;
+  --k-s4: 1.067rem;
+  --k-s5: 1.6rem;
+  --k-s6: 2.133rem;
+
+  /* tvar, stíny, pohyb */
+  --k-r-sm: 4px;
+  --k-r: 7px;
+  --k-r-lg: 12px;
+  --k-shadow-1: 0 1px 2px rgba(0, 0, 0, 0.45);
+  --k-shadow-2: 0 6px 18px rgba(0, 0, 0, 0.5);
+  --k-shadow-3: 0 14px 44px rgba(0, 0, 0, 0.65);
+  --k-ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --k-t-fast: 150ms;
+  --k-t: 200ms;
+  --k-focus: 0 0 0 2px var(--k-bg), 0 0 0 4px var(--k-accent);
+
+  color-scheme: dark;
+}
+
+/* rozlišení hry: bez JS aspoň hrubě podle výšky (kit.js to zpřesní plynule) */
+@media (max-height: 820px) { :root { --k-scale: 0.93; } }
+@media (min-height: 1200px) { :root { --k-scale: 1.15; } }
+@media (min-height: 1500px) { :root { --k-scale: 1.3; } }
+@media (min-height: 2000px) { :root { --k-scale: 1.6; } }
+
+*, *::before, *::after { box-sizing: border-box; }
+html { font-size: var(--k-fs); }
+body.k, .k-root {
+  margin: 0;
+  background: var(--k-bg);
+  color: var(--k-text);
+  font: 1rem/var(--k-lh) var(--k-font);
+  -webkit-font-smoothing: antialiased;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root { --k-t-fast: 1ms; --k-t: 1ms; }
+  * { animation-duration: 1ms !important; scroll-behavior: auto !important; }
+}

@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<title>ui-kit: ukázka</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="theme.css">
+<link rel="stylesheet" href="components.css">
+<style>
+  body { padding: var(--k-s5); max-width: 62rem; margin: 0 auto; }
+  h1 { font: 600 var(--k-fs-xl) var(--k-font-serif); margin: 0 0 var(--k-s1); }
+  h2 { font: 600 var(--k-fs-lg) var(--k-font-serif); margin: var(--k-s5) 0 var(--k-s3); color: var(--k-accent); }
+  .row { display: flex; flex-wrap: wrap; gap: var(--k-s3); align-items: center; }
+  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: var(--k-s4); }
+  .paper { padding: var(--k-s4); }
+</style>
+</head>
+<body class="k">
+<h1>ui-kit</h1>
+<p style="color: var(--k-muted); margin: 0 0 var(--k-s4)">Sdílený vzhled modulů: inkoust, pergamen, zlatý akcent. Pravidla v README.md.</p>
+
+<h2>Tlačítka</h2>
+<div class="row">
+  <button class="k-btn">Uložit</button>
+  <button class="k-btn k-btn--ghost">Zrušit</button>
+  <button class="k-btn k-btn--quiet">Tichá akce</button>
+  <button class="k-btn k-btn--danger">Vyhodit hráče</button>
+  <button class="k-btn" disabled>Vypnuté</button>
+  <button class="k-btn is-busy">Pracuji</button>
+  <button class="k-btn k-btn--sm k-btn--ghost">Malé</button>
+</div>
+
+<h2>Pole, přepínač, posuvník</h2>
+<div class="cols">
+  <div class="k-field"><label for="d1">Jméno místa</label><input id="d1" type="text" value="Troskovice, krčma"><span class="k-help">Hledá se i podle části jména.</span></div>
+  <div class="k-field is-error"><label for="d2">Zpoždění (s)</label><input id="d2" type="number" value="-3"><span class="k-help">Nejméně 0. Zadej nezáporné číslo.</span></div>
+  <div class="k-field"><label for="d3">Počasí</label><select id="d3"><option>cloudless_sunny</option><option>rain</option></select></div>
+  <div class="k-field"><label>Zapnuto</label><label class="k-switch"><input type="checkbox" checked><span class="k-track"></span><span>Automatické oblečení</span></label></div>
+  <div class="k-field"><label for="d4">Hlasitost</label><div class="k-slider"><input id="d4" type="range" min="0" max="100" value="65" style="--k-fill:65%"><output>65 %</output></div></div>
+  <div class="k-field"><label for="d5">Poznámka</label><textarea id="d5" placeholder="Volitelně…"></textarea></div>
+</div>
+
+<h2>Karty, záložky, drobečky, čipy</h2>
+<div class="cols">
+  <div class="k-card"><header><h3>Online hráči</h3><span class="k-aside">obnovuje se každé 3 s</span></header><div class="k-body">Henry, Hans, Jan <span class="k-badge k-badge--ok">3 online</span></div></div>
+  <div class="k-card k-card--danger"><header><h3>Nebezpečné</h3></header><div class="k-body">Restart resource zahodí rozdělanou práci.</div></div>
+</div>
+<div style="margin-top: var(--k-s4)" class="k-crumbs"><button>Správa</button><span class="k-sep">›</span><button>Nastavení</button><span class="k-sep">›</span><span aria-current="page">Příchod</span></div>
+<div class="k-tabs" role="tablist" style="margin-top: var(--k-s3)"><button class="k-tab" role="tab" aria-selected="true">Obecné</button><button class="k-tab" role="tab" aria-selected="false">Původy</button><button class="k-tab" role="tab" aria-selected="false">Místa</button></div>
+<div class="row" style="margin-top: var(--k-s3)"><button class="k-chip is-on">server</button><button class="k-chip">klient</button><button class="k-chip is-on">chat</button><span class="k-badge k-badge--warn">neuloženo</span><span class="k-badge k-badge--err">chyba</span></div>
+
+<h2>Klávesy</h2>
+<div id="keys"></div>
+
+<h2>Toast a potvrzení</h2>
+<div class="row">
+  <button class="k-btn k-btn--ghost" id="t-ok">Úspěch</button>
+  <button class="k-btn k-btn--ghost" id="t-err">Chyba s radou</button>
+  <button class="k-btn k-btn--ghost" id="c-danger">Nebezpečné potvrzení</button>
+  <button class="k-btn k-btn--ghost" id="c-plain">Obyčejné potvrzení</button>
+</div>
+
+<h2>Načítání a prázdno</h2>
+<div class="row"><span class="k-spinner"></span><span style="color: var(--k-muted)">Načítám…</span></div>
+<div class="k-skeleton" style="height: 2.4rem; margin-top: var(--k-s3)"></div>
+<div class="k-card" style="margin-top: var(--k-s3)"><div class="k-empty"><strong>Nic tu zatím není</strong>Z konzole zatím nikdo nic nespustil.</div></div>
+
+<h2>Papír (tvorba postavy, listiny)</h2>
+<div class="k-paper paper">
+  <h3 style="margin-top: 0">Jak se jmenuješ, poutníku?</h3>
+  <p class="k-muted">Jméno si zvol s rozvahou, píše se do kroniky.</p>
+  <div class="k-field"><label for="p1">Jméno</label><input id="p1" type="text" value="Jindřich ze Skalice"></div>
+  <p style="margin-bottom: 0"><button class="k-btn">Pokračovat</button> <a class="k-link" href="#">Zpět</a></p>
+</div>
+
+<script src="kit.js"></script>
+<script>
+  Kit.init();
+  Kit.keys(document.getElementById("keys"), [["Esc", "zavřít"], ["Ctrl+S", "uložit"], ["/", "hledat"], ["Tab", "další pole"], ["?", "nápověda kláves"]]);
+  var $ = function (id) { return document.getElementById(id); };
+  $("t-ok").onclick = function () { Kit.toast("Uloženo.", "ok"); };
+  $("t-err").onclick = function () { Kit.toast("Nastavení se nepodařilo uložit.", "err", { hint: "Zkontroluj červená pole, nebo zkus Obnovit a zadat znovu." }); };
+  $("c-danger").onclick = function () { Kit.confirm({ title: "Vyhodit hráče Hanse?", text: "Hráč bude odpojen od serveru. Může se hned znovu připojit.", ok: "Vyhodit", danger: true }).then(function (y) { Kit.toast(y ? "Vyhozen." : "Zrušeno.", y ? "warn" : "info"); }); };
+  $("c-plain").onclick = function () { Kit.confirm({ title: "Zahodit neuložené změny?", text: "Změny v 3 polích se ztratí.", ok: "Zahodit" }).then(function (y) { Kit.toast(y ? "Zahozeno." : "Zůstáváš v editoru."); }); };
+</script>
+</body>
+</html>

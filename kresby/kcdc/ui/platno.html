@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<title>Kresby</title>
+<!-- Záložní plátno kreseb (CEF). Nativní cesta je Scaleform (client/native.ts); tahle stránka se použije, jen když nejde. -->
+<link rel="stylesheet" href="kit/theme.css">
+<link rel="stylesheet" href="kit/components.css">
+<style>
+  /* jen to, co je specifické pro plátno; barvy z tokenů sdílené sady ui-kit */
+  html, body.k { height: 100%; overflow: hidden; user-select: none; }
+  #wrap { position: absolute; inset: 0; display: none; flex-direction: column; align-items: center; justify-content: center; background: var(--k-scrim); }
+  #sheet { box-shadow: 0 6px 30px rgba(0,0,0,.7); cursor: crosshair; touch-action: none; }
+  #title { font: 2rem var(--k-font-serif); margin-bottom: var(--k-s3); }
+  #author { margin-top: var(--k-s2); font-style: italic; color: var(--k-muted); }
+  #panel { margin-top: var(--k-s4); padding: var(--k-s3) var(--k-s4); background: var(--k-surface); border: 1px solid var(--k-line); display: flex; flex-wrap: wrap; gap: var(--k-s3) var(--k-s4); align-items: center; max-width: 92vw; }
+  .k-btn.on { border-color: var(--k-accent); color: var(--k-accent); }
+  .ink { width: 2.2rem; height: 2.2rem; border: 2px solid var(--k-line); display: inline-flex; align-items: flex-end; justify-content: center; font-size: .75rem; cursor: pointer; color: #fff; text-shadow: 0 0 3px #000; margin-right: var(--k-s1); }
+  .ink.a { border-color: var(--k-accent); } .ink.b { border-color: var(--k-info); } .ink.empty { opacity: .4; }
+  label { display: inline-flex; flex-direction: column; font-size: .85rem; color: var(--k-muted); }
+  #name { font: 1.15rem var(--k-font-serif); width: 14rem; }
+  #status { flex-basis: 100%; color: var(--k-warn); min-height: 1.2rem; }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body class="k">
+<div id="wrap">
+  <div id="title" class="hidden"></div>
+  <canvas id="sheet" width="768" height="512"></canvas>
+  <div id="author" class="hidden"></div>
+  <div id="panel">
+    <div id="status"></div>
+    <div id="keys" style="flex-basis:100%"></div>
+    <span id="tools"></span>
+    <span id="inks"></span>
+    <button id="mix" class="k-btn k-btn--ghost">Přimíchat</button>
+    <label>Velikost <input id="size" type="range" min="0" max="1000" value="400"></label>
+    <label>Krytí <input id="op" type="range" min="13" max="255" value="255"></label>
+    <label id="ratioL">Poměr <input id="ratio" type="range" min="0" max="255" value="128"></label>
+    <label>Název kresby <input id="name" class="k-input" type="text" maxlength="48" placeholder="Kresba"></label>
+    <button id="undo" class="k-btn k-btn--ghost">Zpět</button>
+    <button id="done" class="k-btn">Hotovo</button>
+    <button id="cancel" class="k-btn k-btn--ghost">Zahodit</button>
+  </div>
+  <div id="viewbar" class="hidden"><button id="close" class="k-btn">Zavřít</button></div>
+</div>
+<script src="kit/kit.js"></script>
+<script>Kit.init(); Kit.keys(document.getElementById("keys"), [["Levé tl.", "kreslit"], ["Pravé tl.", "zpět"], ["Esc", "zahodit"]]);</script>
+<script src="platno.js"></script>
+</body>
+</html>

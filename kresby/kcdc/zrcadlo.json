@@ -1,0 +1,5 @@
+{
+  "repo": "gingygames/kcdc-kresby",
+  "extra": ["ui-kit/", "kresby/server/kresby_png.lua"],
+  "vynechat": ["/\\.snimky/"]
+}
