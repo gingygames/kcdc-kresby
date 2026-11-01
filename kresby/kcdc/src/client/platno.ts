@@ -13,17 +13,15 @@
 
 import { TOOL, SRC_H, SRC_W, type Drawing, type Stroke } from "../shared/codec";
 import { paperOf, PRESSURE, rgbInt, mixRGB } from "../shared/ink";
-import { drawingOps, strokeOps, type Ops } from "../shared/vector";
+import { drawingOps } from "../shared/vector";
 import type { CanvasApi, CanvasBackend } from "./hooks";
-import { cursor, drawPaper, Painter, Pen, probe, text, waitReady } from "./native";
+import { cursor, drawPaper, Painter, Pen, probe, qA, qW, StrokeBlocks, text, waitReady } from "./native";
 import { T } from "./theme";
 import { btn, ICONS, lock, slider, type Btn, type Slider } from "./widgets";
 
 const log = (t: string) => console.log("[kresby] " + t);
 const TOOL_NAMES = ["Brk", "Štětec", "Uhel", "Škrabka"];
 const TOOL_FULL = ["husí brk", "štětce", "uhel", "škrabku"];
-const qW = (w: number) => Math.max(0.5, Math.round(w * 4) / 4);
-const qA = (a: number) => Math.max(1, Math.min(100, Math.round(a * 25) * 4));
 
 // velikost stopy ve čtvrtpixelech, posuvník logaritmicky mezi limity serveru
 let sizeLo = 2;
@@ -38,7 +36,7 @@ class NativeCanvas implements CanvasBackend {
   private screen: NativeScreen | null = null;
   private poll: number | null = null;
   private painter: Painter | null = null;
-  private rendered = 0;
+  private blocks: StrokeBlocks | null = null;
   private escAt = 0;
   private cleanup: (() => void)[] = [];
   private lastAct = new Map<string, number>();
@@ -115,8 +113,8 @@ class NativeCanvas implements CanvasBackend {
     const cur = sheet.createClip()!;
     const curPen = new Pen(cur);
     this.painter = new Painter(new Pen(ink), api.msg.paper);
-    this.painter.reset(drawingOps(api.drawing()));
-    this.rendered = api.strokes.length;
+    this.blocks = new StrokeBlocks(ink, this.painter);
+    this.blocks.sync(api.drawing());
 
     // panel: kreslí se v jednotkách 1920 × 216, přizpůsobí se stage
     const k = Math.min(W / 1920, H / 1080);
@@ -340,8 +338,7 @@ class NativeCanvas implements CanvasBackend {
     };
     let lastErr = "";
     const redrawAll = () => {
-      this.painter?.reset(drawingOps(api.drawing()));
-      this.rendered = api.strokes.length;
+      this.blocks?.sync(api.drawing()); // jen bloky od prvního změněného tahu
       refresh();
     };
     api.onChange((why) => (why === "reject" || why === "undo" || why === "reset" ? redrawAll() : refresh()));
@@ -407,13 +404,7 @@ class NativeCanvas implements CanvasBackend {
       curPen.clear();
       const why = api.addStroke(p);
       if (why) say(why, T.bad);
-      else {
-        const d = api.drawing();
-        const ops: Ops = { runs: [], dots: [], segments: 0 };
-        for (let i = this.rendered; i < d.strokes.length; i++) strokeOps(d.strokes[i], d, i + 1, 0, ops);
-        this.rendered = d.strokes.length;
-        this.painter?.add(ops);
-      }
+      else this.blocks?.sync(api.drawing()); // nový tah do posledního bloku
       refresh();
     };
     paperClip.on("press", () => {
@@ -485,6 +476,7 @@ class NativeCanvas implements CanvasBackend {
     }
     this.painter?.stop();
     this.painter = null;
+    this.blocks = null;
     try {
       this.screen?.blur();
       this.screen?.close();

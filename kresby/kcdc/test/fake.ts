@@ -38,6 +38,9 @@ export class Quat {
   constructor(public w: number, public x: number, public y: number, public z: number) {}
 }
 
+// fs pro server: skutečné soubory, ale fs.promises.writeFile hotové hned (falešné časovače nečekají na I/O)
+const fakeFs = { ...nodeFs, promises: { writeFile: async (p: string, d: string | Uint8Array) => nodeFs.writeFileSync(p, d) } };
+
 export function makeServer(opts: { config?: object; storage?: Map<string, string>; most?: Record<string, any> | null; sprava?: Record<string, any> | null; assetsDir?: string } = {}) {
   const on = new Map<string, Fn[]>();
   const onClient = new Map<string, Fn>();
@@ -225,17 +228,20 @@ export function makeServer(opts: { config?: object; storage?: Map<string, string
     },
     console: { log: (t: string) => void logs.push(String(t)) },
     setTimeout, clearTimeout, setInterval, clearInterval, Date, JSON, Math, Promise,
-    ...(opts.assetsDir ? { require: (id: string) => (id === "node:fs" ? nodeFs : id === "node:net" ? {} : undefined) } : {}),
+    ...(opts.assetsDir ? { require: (id: string) => (id === "node:fs" ? fakeFs : id === "node:net" ? {} : undefined) } : {}),
   });
   (ctx as any).__dir = opts.assetsDir ?? "";
+  /** chování háku přenačtení: mute = resourceStart nepřijde (hák selhal potichu), delayMs = za jak dlouho přijde */
+  const reloadCtl = { mute: false, delayMs: 50 };
   (ctx as any).__reload = (novych: string[], zmenenych: string[]) => {
     reloads.push({ novych: [...novych], zmenenych: [...zmenenych] });
+    if (reloadCtl.mute) return;
     // jako konzole: restart / start balíčku, za chvíli resourceStart
     setTimeout(() => {
       // jako KCDC: resourceStart (skripty) přijde dřív, než je balíček assetů zabalený
       for (const n of [...novych, ...zmenenych]) void fire("resourceStart", n);
       setTimeout(() => [...novych, ...zmenenych].forEach((n) => running.add(n)), 300);
-    }, 50);
+    }, reloadCtl.delayMs);
   };
   const storageCfg = `{
     get: (k) => __st.has(k) ? JSON.parse(__st.get(k)) : undefined,
@@ -272,6 +278,7 @@ export function makeServer(opts: { config?: object; storage?: Map<string, string
     raycastHit,
     running,
     reloads,
+    reloadCtl,
     on,
     fire,
     start: () => fire("resourceStart", "kresby"),
@@ -483,8 +490,10 @@ export function makeClient(send: (name: string, payload: unknown) => void, opts:
   const costOf = (prim: any) =>
     prim.type === "polyline" ? prim.points.length - 1 + (prim.closed ? 1 : 0) : prim.type === "mesh" ? (prim.wireframe === false ? prim.indices.length : prim.indices.length * 2) : 12;
 
+  const gizmoCalls = { set: 0, remove: 0 };
   const Gizmos = {
     set(id: string, prim: any, style: any = {}) {
+      gizmoCalls.set++;
       if (!id || id.length > 128) throw new Error("id");
       if (prim.type === "polyline" && (prim.points.length < 2 || prim.points.length > 256)) throw new Error("polyline: 2 až 256 bodů");
       if (prim.type === "mesh" && (prim.points.length < 3 || prim.points.length > 1024 || prim.indices.length > 3072)) throw new Error("mesh");
@@ -498,6 +507,7 @@ export function makeClient(send: (name: string, payload: unknown) => void, opts:
       gizmos.set(id, { prim, style, units: cost });
     },
     remove(id: string) {
+      gizmoCalls.remove++;
       const g = gizmos.get(id);
       if (!g) return false;
       units -= g.units;
@@ -572,6 +582,7 @@ export function makeClient(send: (name: string, payload: unknown) => void, opts:
   return {
     ctx,
     gizmos,
+    gizmoCalls,
     units: () => units,
     screens,
     views,

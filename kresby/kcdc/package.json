@@ -6,7 +6,7 @@
   "scripts": {
     "build": "node tools/build.mjs",
     "test": "node tools/build.mjs && vitest run",
-    "perf": "node tools/build.mjs && node tools/perf.mjs"
+    "perf": "node tools/build.mjs && vitest run test/perf.test.ts"
   },
   "devDependencies": {
     "@kingdomsconnected/types": "1.7.2",

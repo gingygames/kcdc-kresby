@@ -164,10 +164,10 @@ export function strokeOps(s: Stroke, d: Drawing, seed: number, eps: number, out:
   }
 }
 
-/** celá kresba; eps = tolerance zjednodušení v logických px (0 = plná kvalita) */
-export function drawingOps(d: Drawing, eps = 0): Ops {
+/** celá kresba (nebo tahy od `from`, se stejnými semínky jako v celé); eps = tolerance zjednodušení v logických px */
+export function drawingOps(d: Drawing, eps = 0, from = 0, to = d.strokes.length): Ops {
   const out: Ops = { runs: [], dots: [], segments: 0 };
-  d.strokes.forEach((s, i) => strokeOps(s, d, i + 1, eps, out));
+  for (let i = Math.max(0, from); i < Math.min(to, d.strokes.length); i++) strokeOps(d.strokes[i], d, i + 1, eps, out);
   return out;
 }
 
@@ -211,9 +211,10 @@ function quantColor(c: number, k: number): number {
  * eps = tolerance zjednodušení (logické px), minWidth = tah užší než tohle (logické px) vypadne,
  * k = logických px listu na 1 px obrazovky (podle vzdálenosti) - podle něj se tahy seskupí na šířky v px.
  * maxIds = strop kreseb Gizmos pro tenhle list (výchozí podle k: zblízka 72, středně 32, daleko 16).
+ * from = jen tahy od tohoto pořadí (živé kreslení: dokreslit nové tahy bez přeplánování celé kresby).
  */
-export function gizmoPlan(d: Drawing, eps: number, minWidth = 0, k = 1, maxIds?: number): GizmoPlan {
-  const ops = drawingOps(d, eps);
+export function gizmoPlan(d: Drawing, eps: number, minWidth = 0, k = 1, maxIds?: number, from = 0): GizmoPlan {
+  const ops = drawingOps(d, eps, from);
   const groups = new Map<string, GizmoGroup>();
   for (const r of ops.runs) {
     if (r.mode === 2 && eps > 0) continue; // seškrábání se na dálku neukazuje

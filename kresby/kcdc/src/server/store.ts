@@ -91,6 +91,11 @@ function put(key: string, value: unknown) {
   schedule();
 }
 
+/** hodnota jiné části modulu (stav textur, server/assets.ts) se stejným slučováním zápisů (CFG.saveMs) */
+export function saveLater(key: string, value: unknown) {
+  put(key, value);
+}
+
 export async function flush(): Promise<void> {
   if (timer) clearTimeout(timer);
   timer = null;

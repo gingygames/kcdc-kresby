@@ -37,6 +37,11 @@ Stejný princip jako u `most/shim`: modul si sadu bere z repa relativní cestou 
 
 Náhled stránky bez hry: `tools/ui-dev` modulu (příklad `sprava/tools/ui-dev/`). Kopie sady v `dist/` se nikdy needituje, upravuje se jen `ui-kit/`.
 
+## Tooltipy a výběry: nepoužívej nativní `title` ani rozbalovací seznam prohlížeče
+Hra vykresluje web view bez okna (CEF offscreen), takže **nativní tooltip (`title`) a rozbalovací seznam `<select>` se neukážou a zůstane černý čtvereček**. Proto každá stránka volá `Kit.init()` (nebo aspoň `Kit.enhance()`); psát můžeš dál `title="…"` i `<select>`, kit je za běhu převede. Nový kód radši rovnou píše `data-tip="…"`.
+- **Tooltip zrušíš** `title = ""`, `removeAttribute("title")` (sada kvůli tomu obaluje `Element.prototype.removeAttribute`: u prvku, jehož `data-tip` vznikl z `title`, ho odebere) nebo `removeAttribute("data-tip")`.
+- **Select dál ovládej jako select:** `value`, `selectedIndex`, `disabled`, `hidden`, `style.display = "none"`, třídy a `data-tip` se promítnou do tlačítka `k-select`; `option.selected = true` a `form.reset()` se projeví při otevření, fokusu a po resetu formuláře. Nativní select je skrytý třídou `k-select-native` (`display: none !important`), nikdy ho neukazuj přes `style.display`. `<label for>` zaostří tlačítko. Odebraný select sada uvolní (observer, posluchače), po vrácení do stránky ho vylepší znovu. Plná šířka: podle změřené šířky, ve skrytém rodiči podle CSS šířky (`100%`); `.k-field` a `.k-input` jsou vždy na plnou šířku. Chybový stav: `.k-field.is-error .k-select` (vlastní styly modulu potřebují pravidlo i pro `.k-select`, ne jen `select`).
+
 ## Pravidla vzhledu
 - **Kontrast:** text aspoň **4,5:1**, ovládací prvky a okraje polí aspoň 3:1. `node ui-kit/check.mjs` to hlídá pro všechny dvojice z `theme.css`; nová barva = nová dvojice v `PAIRS`. `--k-faint` je jen dekorace a vypnuté prvky, ne text.
 - **Písmo:** rozměry v `rem` (nikdy v pevných `px` pro text), základ `15px × --k-scale`. `Kit.init()` nastaví `--k-scale` podle výšky okna (1080 px = 1, 4K = 1,8, nejméně 0,9). Nadpisy serifové (`--k-font-serif`), text bezpatkový.
@@ -62,7 +67,9 @@ Náhled stránky bez hry: `tools/ui-dev` modulu (příklad `sprava/tools/ui-dev/
 | `Kit.el(tag, props, …děti)` | vytvoří prvek (`class`, `text`, `onclick`…), texty jen jako `textContent` |
 | `Kit.window(node, { handle, key, min, size })` | přesouvatelné a zvětšitelné okno: stránka (web view) pokrývá celou obrazovku, okno je v ní `position: fixed`; posun za `handle`, úchyty na okrajích a v rozích (`k-rs`), dvojklik na `handle` = výchozí poloha; pozice a velikost v `Kit.store("window")`, po obnovení ohlídané proti obrazovce. Vrací `{ reset, rect }` |
 | `Kit.clampRect` / `Kit.dragRect` | čistá matematika oken (testovatelná bez DOM) |
-| `Kit.trap(node)` | drží Tab uvnitř prvku (modální okna); vrací funkci pro uvolnění |
+| `Kit.enhance()` (volá ho `Kit.init()`) | **tooltip a výběr pro celou stránku, i pro prvky přidané později** (MutationObserver): nativní `title` se převede na `data-tip` a zobrazí vlastním tooltipem (zpoždění 300 ms, u kurzoru, drží se na obrazovce, styl `--k-*`); `<select>` se nahradí rozbalovacím výběrem `k-select` (původní select zůstane skrytý a drží hodnotu, události `input`/`change` i `sel.value = …` fungují dál; `data-native` na selectu ho nechá nativní). Stránka bez skriptů scale volá jen `Kit.enhance()` |
+| `Kit.convertTitle(node)` / `Kit.placeTip(…)` / `Kit.titleActions(…)` / `Kit.selectMirror(…)` / `Kit.selectFull(…)` / `Kit.isTabbable(…)` | čistá logika tooltipu, výběru a pasti fokusu (testovatelná bez DOM) |
+| `Kit.trap(node)` | drží Tab uvnitř prvku (modální okna), jen mezi vykreslenými prvky (skrytý nativní select přeskočí); vrací funkci pro uvolnění |
 
 ## Kdo sadu používá a jak se mění
 - Použití: `sprava/` (F10, editor, konzole). Další moduly (`prichod/`, `kresby/`, `loutna/`, `hospoda/`) si ji přidají podle postupu výše.

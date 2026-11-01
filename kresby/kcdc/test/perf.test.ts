@@ -4,7 +4,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { countPoints, decode, encodeK2, encodeK3, hashOf } from "../src/shared/codec";
 import { faceHeight, normalFromYaw } from "../src/shared/layout";
 import { EV } from "../src/shared/protocol";
-import { gizmoPlan } from "../src/shared/vector";
+import { drawingOps, gizmoPlan } from "../src/shared/vector";
+import { encodeBC1, writeDds, writeDdsSteps } from "../src/server/dds";
+import { Budget, poolStats, release, renderSheet, resample, resampleSteps, runSync } from "../src/server/raster";
+import { Painter, Pen, StrokeBlocks } from "../src/client/native";
 import { makeClient, makeServer, Vec } from "./fake";
 import { rng, sketch } from "./sketch";
 
@@ -97,7 +100,8 @@ describe("výkon", () => {
 
   it("klient: 30-60 kreseb v dosahu, LOD a rozpočet Gizmos", async () => {
     const { st } = town();
-    const s = makeServer({ storage: st, config: { dataRate: 50 * 1024 * 1024 } });
+    // režim čar: klient kreslí všechny kresby v dosahu (v režimu textura jsou to Prop serveru a klient by neměřil nic)
+    const s = makeServer({ storage: st, config: { dataRate: 50 * 1024 * 1024, svet: { rezim: "cary" } } });
     await s.start();
     const me = s.henry;
     me.position = new Vec(-10, -60, 0);
@@ -109,6 +113,7 @@ describe("výkon", () => {
     for (let i = 0; i < 40; i++) await tick(250);
     const times: number[] = [];
     const res: string[] = [];
+    let drawnMax = 0;
     for (const [label, y, look] of [["u desky (1,5 m)", -88.9, 0], ["na náměstí (8 m)", -82, 0], ["procházka", -70, 1]] as const) {
       c.pose.position = new Vec(-10, y, 1.6);
       c.pose.forward = look ? new Vec(0.6, 0.8, 0) : new Vec(0, -1, 0);
@@ -118,12 +123,135 @@ describe("výkon", () => {
       await tick(250);
       times.push(now() - t0);
       const st2 = c.stats();
+      drawnMax = Math.max(drawnMax, st2.drawn);
       res.push(`${label}: ${st2.drawn}/${st2.sheets} listů čarami, ${st2.units} úseků, ${st2.ids} kreseb Gizmos`);
       expect(st2.units).toBeLessThanOrEqual(6000 + 255 * 12);
       expect(c.gizmos.size).toBeLessThanOrEqual(98);
       expect(c.units()).toBeLessThanOrEqual(16384);
     }
     const s2 = c.stats();
-    console.log(`klient: ${res.join("; ")}; průchod ~${(times.reduce((a, b) => a + b, 0) / times.length).toFixed(1)} ms (vč. přestavby), plánů ${s2.plans} za ${s2.planMs} ms, Gizmos.set ${s2.setMs} ms, žádostí o data ${s2.requests}`);
+    console.log(`klient (režim čar): ${res.join("; ")}; průchod ~${(times.reduce((a, b) => a + b, 0) / times.length).toFixed(1)} ms (vč. přestavby), plánů ${s2.plans} za ${s2.planMs} ms, Gizmos.set ${s2.setMs} ms, žádostí o data ${s2.requests}`);
+    expect(drawnMax).toBeGreaterThan(0); // dřív v režimu textura 0 listů, 0 plánů: test neměřil nic
+  });
+
+  it("klient: cizí živé kreslení až do stropu (320 tahů, 13 000 bodů), divák 1,5 m od listu", async () => {
+    const c = makeClient(() => {}, { pos: new Vec(0, 0.5, 1.6) });
+    c.pose.position = new Vec(0, 0.5, 1.6);
+    c.pose.forward = new Vec(0, 1, 0);
+    const board = { id: 5, kind: "deska", pos: [0, 2, 1.6], n: [0, -1, 0], w: 1.5, h: 1, cols: 1, rows: 1, rev: 0, slots: [{ live: 7, paper: 0 }] };
+    c.deliver(EV.okoli, JSON.stringify({ add: [board], del: [], cfg: { rezim: "textura" } }));
+    const d = sketch(320, 9, 47);
+    c.deliver(EV.zive, JSON.stringify({ b: 5, slot: 0, s: 7, paper: d.paper, inks: d.inks }));
+    // jako server: po 150 ms dávka nových tahů (kreslí se ~2 tahy za 150 ms), klient vykresluje po 250 ms
+    let t = 0;
+    for (let i = 0; i < d.strokes.length; i += 2) {
+      c.deliver(EV.zive, JSON.stringify({ b: 5, slot: 0, s: 7, add: encodeK3({ paper: d.paper, inks: [], strokes: d.strokes.slice(i, i + 2) }) }));
+      if (i === 200) c.deliver(EV.zive, JSON.stringify({ b: 5, slot: 0, s: 7, undo: 1 })); // jedno zpět uprostřed
+      const t0 = now();
+      await tick(150);
+      t += now() - t0;
+    }
+    await tick(1000);
+    const st = c.stats();
+    console.log(
+      `klient živě: ${d.strokes.length} tahů po dvou, ${st.plans} plánů celé kresby + ${st.appends ?? "?"} dokreslení, ` +
+        `${c.gizmoCalls.set}× Gizmos.set, ${c.gizmoCalls.remove}× remove, ` +
+        `klient celkem ${t.toFixed(0)} ms skutečného času za ${(d.strokes.length / 2) * 0.15} s kreslení; nakonec ${st.units} úseků, ${st.ids} kreseb Gizmos`,
+    );
+    expect(st.drawn).toBe(1);
+    expect(st.units).toBeGreaterThan(1000);
+    expect(t).toBeLessThan(1500);
+  });
+
+  it("server: textura kresby po kouscích (rastr, převzorkování, mipmapy, BC1), 15 000 bodů", () => {
+    const d = sketch(320, 9, 47);
+    const k = (2 * 1024) / 768 / 1.5;
+    // dřív: rastr po kouscích, zbytek naráz
+    const cv0 = runSync(renderSheet(d, k, 4000));
+    let t0 = now();
+    const tex0 = resample(cv0, 1024, 512);
+    const dds0 = writeDds(tex0);
+    const tail = ms(t0);
+    // teď: všechno po kouscích se stejným rozpočtem práce jako rastr; měří se nejdelší krok generátoru
+    const steps = function* () {
+      const cv = yield* renderSheet(d, k, 4000);
+      const b = new Budget(4000);
+      const tex = yield* resampleSteps(cv, 1024, 512, b);
+      release(cv.px);
+      const dds = yield* writeDdsSteps(tex, 4, b);
+      release(tex.px);
+      return dds;
+    };
+    const run = () => {
+      const g = steps();
+      let max = 0;
+      let n = 0;
+      const start = now();
+      for (;;) {
+        const t = now();
+        const r = g.next();
+        max = Math.max(max, now() - t);
+        n++;
+        if (r.done) return { dds: r.value, max, n, total: now() - start };
+      }
+    };
+    run(); // zahřátí, zásobník bufferů
+    const hits0 = poolStats.hits;
+    const r = run();
+    t0 = now();
+    for (let i = 0; i < 20; i++) encodeBC1(tex0);
+    const bc1 = ms(t0) / 20;
+    console.log(
+      `textura po kouscích: celkem ${r.total.toFixed(0)} ms v ${r.n} krocích, nejdelší krok ${r.max.toFixed(2)} ms ` +
+        `(dřív převzorkování + mipmapy + BC1 naráz ${tail} ms); BC1 1024×512 ${bc1.toFixed(1)} ms; zásobník: ${poolStats.hits - hits0} polí znovu použito`,
+    );
+    expect(r.max).toBeLessThan(15);
+    expect(poolStats.hits - hits0).toBeGreaterThanOrEqual(4);
+    // stejný výsledek jako naráz (převzorkování po řádcích s float32 mezisoučty se smí lišit o zaokrouhlení)
+    expect([...r.dds.files.keys()]).toEqual([...dds0.files.keys()]);
+    const a = r.dds.files.get("4")!;
+    const b = dds0.files.get("4")!;
+    let diff = 0;
+    for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) diff++;
+    expect(diff / a.length).toBeLessThan(0.01);
+  });
+
+  it("klient: nativní plátno, zpět u plné kresby překreslí jen poslední blok tahů", () => {
+    class C {
+      static calls = 0;
+      kids: C[] = [];
+      invoke() {
+        C.calls++;
+        return true;
+      }
+      createClip() {
+        const c = new C();
+        this.kids.push(c);
+        return c;
+      }
+    }
+    const d = sketch(320, 9, 47);
+    const root = new C() as unknown as NativeClip;
+    const painter = new Painter(new Pen(root), d.paper, 1e9);
+    const blocks = new StrokeBlocks(root, painter);
+    const strokes = d.strokes.slice();
+    const dr = { ...d, strokes };
+    blocks.sync(dr);
+    painter.step();
+    const open = C.calls;
+    C.calls = 0;
+    strokes.pop(); // zpět
+    blocks.sync(dr);
+    painter.step();
+    const undo = C.calls;
+    // pro srovnání: dřív se po zpět smazalo a znovu nakreslilo všechno
+    C.calls = 0;
+    const old = new Painter(new Pen(root), d.paper, 1e9);
+    old.reset(drawingOps(dr));
+    old.step();
+    const before = C.calls;
+    console.log(`nativní plátno: otevření ${open} volání (${Math.ceil(open / 1500)} snímků po 1500), zpět ${undo} volání (${blocks.redrawn} tahů), dřív zpět ${before} volání (${Math.ceil(before / 1500)} snímků)`);
+    expect(blocks.redrawn).toBeLessThanOrEqual(32);
+    expect(undo).toBeLessThan(before / 5);
   });
 });

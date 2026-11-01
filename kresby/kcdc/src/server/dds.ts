@@ -3,7 +3,7 @@
 // pole, která hra zapisuje do svých textur (CryEngine: průměrný jas, rozsah barev, značka `FYRC`, DX10 s formátem
 // BC1_UNORM_SRGB = 72). Zjištěno z textur hry (Objects/.../scroll_diff.dds), viz AGENTS.md.
 
-import type { Canvas } from "./raster";
+import { Budget, f32, release, runSync, type Canvas } from "./raster";
 
 export interface DdsFiles {
   /** přípona -> bajty: "" = .dds, "1" = .dds.1, … */
@@ -22,8 +22,16 @@ const BC1_SRGB = 72;
 const to565 = (r: number, g: number, b: number) => ((Math.round(r * 31 / 255) << 11) | (Math.round(g * 63 / 255) << 5) | Math.round(b * 31 / 255)) >>> 0;
 const from565 = (c: number): [number, number, number] => [((c >> 11) & 31) * 255 / 31, ((c >> 5) & 63) * 255 / 63, (c & 31) * 255 / 31];
 
+// pracovní pole bloku: jedno pro všechny bloky (dřív nové pole a paleta pro každý blok 4×4)
+const px = new Float32Array(48);
+const pal = new Float32Array(12);
+const e565 = (c: number, o: number) => {
+  pal[o] = (((c >> 11) & 31) * 255) / 31;
+  pal[o + 1] = (((c >> 5) & 63) * 255) / 63;
+  pal[o + 2] = ((c & 31) * 255) / 31;
+};
+
 function encodeBlock(src: Float32Array, w: number, h: number, bx: number, by: number, out: Uint8Array, o: number) {
-  const px = new Float32Array(48);
   let mr = 0;
   let mg = 0;
   let mb = 0;
@@ -77,16 +85,19 @@ function encodeBlock(src: Float32Array, w: number, h: number, bx: number, by: nu
   if (c0 < c1) [c0, c1] = [c1, c0];
   let idx = 0;
   if (c0 !== c1) {
-    const e0 = from565(c0);
-    const e1 = from565(c1);
-    const pal = [e0, e1, e0.map((v, i) => (2 * v + e1[i]) / 3), e0.map((v, i) => (v + 2 * e1[i]) / 3)];
+    e565(c0, 0);
+    e565(c1, 3);
+    for (let i = 0; i < 3; i++) {
+      pal[6 + i] = (2 * pal[i] + pal[3 + i]) / 3;
+      pal[9 + i] = (pal[i] + 2 * pal[3 + i]) / 3;
+    }
     for (let k = 15; k >= 0; k--) {
       let best = 0;
       let bd = Infinity;
       for (let q = 0; q < 4; q++) {
-        const dr = px[k * 3] - pal[q][0];
-        const dg = px[k * 3 + 1] - pal[q][1];
-        const db = px[k * 3 + 2] - pal[q][2];
+        const dr = px[k * 3] - pal[q * 3];
+        const dg = px[k * 3 + 1] - pal[q * 3 + 1];
+        const db = px[k * 3 + 2] - pal[q * 3 + 2];
         const dd = dr * dr * 0.3 + dg * dg * 0.59 + db * db * 0.11;
         if (dd < bd) (bd = dd), (best = q);
       }
@@ -104,10 +115,18 @@ function encodeBlock(src: Float32Array, w: number, h: number, bx: number, by: nu
 }
 
 export function encodeBC1(c: Canvas): Uint8Array {
+  return runSync(encodeBC1Steps(c, new Budget(1e15)));
+}
+
+/** BC1 po řádcích bloků, `yield` po dávce práce rozpočtu */
+export function* encodeBC1Steps(c: Canvas, b: Budget): Generator<void, Uint8Array> {
   const bw = Math.ceil(c.w / 4);
   const bh = Math.ceil(c.h / 4);
   const out = new Uint8Array(bw * bh * 8);
-  for (let y = 0; y < bh; y++) for (let x = 0; x < bw; x++) encodeBlock(c.px, c.w, c.h, x * 4, y * 4, out, (y * bw + x) * 8);
+  for (let y = 0; y < bh; y++) {
+    for (let x = 0; x < bw; x++) encodeBlock(c.px, c.w, c.h, x * 4, y * 4, out, (y * bw + x) * 8);
+    if (b.tick(bw * 24)) yield;
+  }
   return out;
 }
 
@@ -141,10 +160,15 @@ export function decodeBC1(data: Uint8Array, w: number, h: number): Canvas {
 
 /** polovina rozměru (průměr 2×2) */
 export function halve(c: Canvas): Canvas {
+  return runSync(halveSteps(c, new Budget(1e15)));
+}
+
+function* halveSteps(c: Canvas, b: Budget): Generator<void, Canvas> {
   const w = Math.max(1, c.w >> 1);
   const h = Math.max(1, c.h >> 1);
-  const out: Canvas = { w, h, px: new Float32Array(w * h * 3) };
+  const out: Canvas = { w, h, px: f32(w * h * 3) };
   for (let y = 0; y < h; y++) {
+    if (b.tick(w * 4)) yield;
     for (let x = 0; x < w; x++) {
       for (let ch = 0; ch < 3; ch++) {
         const a = c.px[((y * 2) * c.w + x * 2) * 3 + ch];
@@ -160,8 +184,12 @@ export function halve(c: Canvas): Canvas {
 
 /** mipmapy až do nejmenšího rozměru 4 (jako hra) */
 export function mipChain(c: Canvas): Canvas[] {
+  return runSync(mipChainSteps(c, new Budget(1e15)));
+}
+
+function* mipChainSteps(c: Canvas, b: Budget): Generator<void, Canvas[]> {
   const out = [c];
-  while (Math.min(out[out.length - 1].w, out[out.length - 1].h) > 4) out.push(halve(out[out.length - 1]));
+  while (Math.min(out[out.length - 1].w, out[out.length - 1].h) > 4) out.push(yield* halveSteps(out[out.length - 1], b));
   return out;
 }
 
@@ -201,12 +229,23 @@ function header(w: number, h: number, mips: number, persistent: number, avg: num
  * (hra má 4 u textur širších než vysokých, viz scroll_diff.dds a beams_connection_decal_diff.dds).
  */
 export function writeDds(c: Canvas, persistent = 4): DdsFiles {
-  const chain = mipChain(c);
-  const enc = chain.map(encodeBC1);
+  return runSync(writeDdsSteps(c, persistent, new Budget(1e15)));
+}
+
+/** writeDds po kouscích (mipmapy, BC1, průměrný jas), `yield` po dávce práce rozpočtu; mipmapy 1+ jdou do zásobníku */
+export function* writeDdsSteps(c: Canvas, persistent: number, b: Budget): Generator<void, DdsFiles> {
+  const chain = yield* mipChainSteps(c, b);
+  const enc: Uint8Array[] = [];
+  for (const m of chain) enc.push(yield* encodeBC1Steps(m, b));
+  for (let i = 1; i < chain.length; i++) release(chain[i].px);
   const n = chain.length;
   const keep = Math.min(persistent, n);
   let avg = 0;
-  for (let i = 0; i < c.px.length; i += 3) avg += (c.px[i] * 0.299 + c.px[i + 1] * 0.587 + c.px[i + 2] * 0.114) / 255;
+  const step = c.w * 3;
+  for (let i = 0; i < c.px.length; i += 3) {
+    avg += (c.px[i] * 0.299 + c.px[i + 1] * 0.587 + c.px[i + 2] * 0.114) / 255;
+    if (i % step === 0 && b.tick(c.w)) yield;
+  }
   avg /= c.px.length / 3;
   const files = new Map<string, Uint8Array>();
   const tail = enc.slice(n - keep);

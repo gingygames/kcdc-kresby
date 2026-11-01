@@ -78,6 +78,7 @@ describe("nastavení ve správě", () => {
     const v = def.get();
     v.materialy.papiry.push({ kod: 2, id: "velin", nazev: "Velín", popis: "Jemná telecí kůže.", barva: "#f3ead6", styl: "hladky", cena: 9, vaha: 0.02 });
     await save(s, def, v);
+    await s.settle(); // prázdné listy se pečou po kouscích na pozadí
     expect(s.registered.get("kresby:list:velin")).toMatchObject({ name: "Velín", price: 9 });
     expect(readdirSync(join(dir, "kresby-obrazy-0/stream/objects/kcdc/kresby-obrazy-0"))).toContain("list2.cgf");
     await s.cmd(s.henry, "dat Henry velin 2");

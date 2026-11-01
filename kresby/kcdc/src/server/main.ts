@@ -49,9 +49,10 @@ async function boot() {
   registerItems();
   await load();
   loadedFrom = storage.kind();
-  await assets.init({ onLive: refreshAll, drawing: async (id) => getDrawing(id) });
+  await assets.init({ onLive: refreshLive, drawing: async (id) => getDrawing(id), players: () => Player.all().length });
   indexAll();
-  for (const b of boards.values()) for (const s of b.slots) if (s && !s.hid) void assets.want(s.d); // chybějící textury
+  // chybějící textury: po kouscích ve frontě; při startu bez hráčů rovnou do studených balíčků
+  for (const b of boards.values()) for (const s of b.slots) if (s && !s.hid) void assets.want(s.d, { start: true });
   if (found.sprava && most.registerPanel(panels()[0])) log("panel ve správě zaregistrován");
   if (found.sprava) settings.push();
   timers.push(setInterval(guard("okolí", streamAll), CFG.streamMs));
@@ -61,9 +62,18 @@ async function boot() {
   log(`běží: ${most.mostInfo()}, úložiště ${loadedFrom}`);
 }
 
-/** balíček textur běží s novými soubory: listy ve světě vyměnit, klientům říct, kde textura je */
-function refreshAll() {
-  for (const b of boards.values()) changed(b, false);
+/**
+ * Balíček textur běží s novými soubory: listy ve světě vyměnit a klientům říct, kde textura je. Zprávu dostanou jen
+ * desky s kresbou, která právě přestala čekat (dřív všechny desky všem, kdo o nich vědí, po každém přenačtení).
+ * Prázdné listy (balíček 0) mění jen Prop na serveru, klientům se nic neposílá.
+ */
+function refreshLive(shard: string, ids: number[]) {
+  const live = new Set(ids);
+  const blank = shard === assets.blankShard();
+  for (const b of boards.values()) {
+    if (b.slots.some((s) => s && live.has(s.d))) changed(b, false);
+    else if (blank) sheets.sync(b, (slot) => liveAt(b, slot) > 0);
+  }
 }
 
 Events.on("resourceStart", guard("start", async (name: unknown) => {

@@ -93,3 +93,100 @@ test("dragRect: posun, změna velikosti okrajem a rohem, minimum a hranice obraz
   assert.deepEqual(Kit.dragRect(s, "e", 9999, 0, 1280, 800, min), { x: 100, y: 100, w: 1180, h: 500 });
   assert.deepEqual(Kit.dragRect(s, "nw", -500, -500, 1280, 800, min), { x: 0, y: 0, w: 900, h: 600 });
 });
+
+test("convertTitle: title -> data-tip, title zmizí; prázdný title se jen odstraní; <title> se nesahá", () => {
+  const mk = (tag, attrs) => ({ tagName: tag, attrs: { ...attrs }, hasAttribute(k) { return k in this.attrs; }, getAttribute(k) { return this.attrs[k]; }, setAttribute(k, v) { this.attrs[k] = v; }, removeAttribute(k) { delete this.attrs[k]; } });
+  const b = mk("BUTTON", { title: "Uložit\nzměny" });
+  assert.equal(Kit.convertTitle(b), true);
+  assert.deepEqual(b.attrs, { "data-tip": "Uložit\nzměny" });
+  const e = mk("DIV", { title: "  " });
+  assert.equal(Kit.convertTitle(e), true);
+  assert.deepEqual(e.attrs, {});
+  assert.equal(Kit.convertTitle(mk("SPAN", {})), false);
+  const t = mk("TITLE", { title: "x" });
+  assert.equal(Kit.convertTitle(t), false);
+  assert.equal(t.attrs.title, "x");
+  assert.equal(Kit.convertTitle(null), false);
+});
+
+test("placeTip: pod kurzorem, u okraje se překlopí, vždy celý na obrazovce", () => {
+  assert.deepEqual(Kit.placeTip(100, 100, 200, 40, 1280, 800), { left: 114, top: 120 });
+  assert.deepEqual(Kit.placeTip(1200, 100, 200, 40, 1280, 800), { left: 986, top: 120 });
+  assert.deepEqual(Kit.placeTip(100, 790, 200, 40, 1280, 800), { left: 114, top: 738 });
+  const p = Kit.placeTip(5, 5, 2000, 2000, 1280, 800);
+  assert.deepEqual(p, { left: 4, top: 4 });
+});
+
+const fakeNode = (tag, attrs) => ({ tagName: tag, attrs: { ...attrs }, hasAttribute(k) { return k in this.attrs; }, getAttribute(k) { return k in this.attrs ? this.attrs[k] : null; }, setAttribute(k, v) { this.attrs[k] = String(v); }, removeAttribute(k) { delete this.attrs[k]; } });
+
+test("convertTitle: prázdný title zruší starý data-tip (title = \"\")", () => {
+  const b = fakeNode("BUTTON", { "data-tip": "starý", title: "" });
+  assert.equal(Kit.convertTitle(b), true);
+  assert.deepEqual(b.attrs, {});
+  const c = fakeNode("BUTTON", { "data-tip": "starý", title: "nový" });
+  Kit.convertTitle(c);
+  assert.deepEqual(c.attrs, { "data-tip": "nový" });
+});
+
+test("titleActions: převod, odebrání stránkou zruší tooltip, vlastní odebrání sady se nepočítá", () => {
+  const rec = (target, oldValue) => ({ type: "attributes", attributeName: "title", target, oldValue });
+  // stránka nastaví title: převést
+  const a = fakeNode("DIV", { title: "A" });
+  assert.deepEqual(Kit.titleActions([rec(a, null)], new Map()), [{ node: a, act: "convert" }]);
+  // sada title odebrala (značka "A"): záznam se spotřebuje, nic se neděje
+  const marks = new Map();
+  const b = fakeNode("DIV", { "data-tip": "A" });
+  marks.set(b, "A");
+  assert.deepEqual(Kit.titleActions([rec(b, "A")], marks), [{ node: b, act: null }]);
+  assert.equal(marks.has(b), false);
+  // stránka title nastavila a hned odebrala (title = "B"; removeAttribute("title")): zrušit data-tip
+  const c = fakeNode("DIV", { "data-tip": "A" });
+  assert.deepEqual(Kit.titleActions([rec(c, null), rec(c, "B")], new Map()), [{ node: c, act: "drop" }]);
+  // po vlastním odebrání sady stránka title znovu nastaví a odebere: poslední změna je stránky -> zrušit
+  const d = fakeNode("DIV", { "data-tip": "A" });
+  const m2 = new Map([[d, "A"]]);
+  assert.deepEqual(Kit.titleActions([rec(d, "A"), rec(d, null), rec(d, "A")], m2), [{ node: d, act: "drop" }]);
+  // dvě změny title za sebou (B, pak C): převést, ne zrušit
+  const e = fakeNode("DIV", { title: "C" });
+  assert.deepEqual(Kit.titleActions([rec(e, null), rec(e, "B")], new Map()), [{ node: e, act: "convert" }]);
+  // Kit.select(sel) převedl title synchronně po nastavení stránkou: poslední záznam je sady -> nic
+  const f = fakeNode("SELECT", { "data-tip": "A" });
+  assert.deepEqual(Kit.titleActions([rec(f, null), rec(f, "A")], new Map([[f, "A"]])), [{ node: f, act: null }]);
+  // jiné atributy se ignorují
+  assert.deepEqual(Kit.titleActions([{ attributeName: "class", target: a, oldValue: null }], new Map()), []);
+});
+
+test("isTabbable: skrytý (nevykreslený) nativní select ani vypnutý prvek se Tabem nepočítá, vlastní tlačítko ano", () => {
+  const n = (o) => ({ disabled: false, hidden: false, tabIndex: 0, getClientRects: () => [1], ...o });
+  assert.equal(Kit.isTabbable(n({})), true);
+  assert.equal(Kit.isTabbable(n({ getClientRects: () => [] })), false);    // display: none (k-select-native)
+  assert.equal(Kit.isTabbable(n({ disabled: true })), false);
+  assert.equal(Kit.isTabbable(n({ hidden: true })), false);
+  assert.equal(Kit.isTabbable(n({ tabIndex: -1 })), false);
+  assert.equal(Kit.isTabbable(null), false);
+});
+
+test("selectFull: změřená šířka vůči rodiči; v skrytém rodiči (0 px) podle CSS šířky, ne zúžit", () => {
+  assert.equal(Kit.selectFull(300, 320, ""), true);
+  assert.equal(Kit.selectFull(100, 320, ""), false);
+  assert.equal(Kit.selectFull(0, 0, "100%"), true);
+  assert.equal(Kit.selectFull(0, 0, "95.5%"), true);
+  assert.equal(Kit.selectFull(0, 0, "auto"), false);
+  assert.equal(Kit.selectFull(0, 0, "14rem"), false);
+  assert.equal(Kit.selectFull(0, 0, undefined), false);
+});
+
+test("selectMirror: popisek podle vybrané možnosti, skrytí, vypnutí, třídy a tooltip selectu", () => {
+  const opts = [{ text: "podle názvu" }, { text: "podle ceny" }];
+  const sel = { options: opts, selectedIndex: 1, disabled: false, hidden: false, style: { display: "", visibility: "" }, className: "k-input k-select-native addfrom", getAttribute: (k) => (k === "data-tip" ? "Řazení" : null) };
+  assert.deepEqual(Kit.selectMirror(sel, true), { label: "podle ceny", disabled: false, hidden: false, visibility: "", tip: "Řazení", cls: "k-input addfrom k-select k-select--full" });
+  // option.selected = true / form.reset() změní selectedIndex bez události: popisek se čte znovu
+  sel.selectedIndex = 0;
+  assert.equal(Kit.selectMirror(sel, false).label, "podle názvu");
+  sel.hidden = true;
+  assert.equal(Kit.selectMirror(sel, false).hidden, true);
+  sel.hidden = false; sel.style.display = "none";
+  assert.equal(Kit.selectMirror(sel, false).hidden, true);
+  sel.style.display = ""; sel.disabled = true; sel.selectedIndex = -1; sel.className = "";
+  assert.deepEqual(Kit.selectMirror(sel, false), { label: "", disabled: true, hidden: false, visibility: "", tip: "Řazení", cls: "k-select" });
+});

@@ -164,6 +164,7 @@ export function value(): SettingsObject {
         sirka: CFG.svet.sirka,
         kvalita: CFG.svet.kvalita,
         shard: CFG.svet.shard,
+        horky: CFG.svet.horky,
         reloadS: Math.round(CFG.svet.reloadMs / 1000),
         konzole: CFG.svet.konzole,
         lesk: CFG.svet.lesk,
@@ -305,6 +306,7 @@ function apply(v: any) {
     CFG.svet.sirka = [512, 1024, 2048].includes(s.sirka) ? s.sirka : 1024;
     CFG.svet.kvalita = s.kvalita === 1 ? 1 : 2;
     CFG.svet.shard = Math.max(1, Math.round(num(s.shard, 24)));
+    CFG.svet.horky = Math.max(1, Math.min(CFG.svet.shard, Math.round(num(s.horky, 3))));
     CFG.svet.reloadMs = Math.max(5, num(s.reloadS, 30)) * 1000;
     CFG.svet.konzole = s.konzole !== false;
     CFG.svet.lesk = Math.max(0, Math.min(255, num(s.lesk, 30)));
@@ -415,7 +417,7 @@ function check(v: any): { path: string; message: string }[] {
 /** po změně: nové předměty, prázdné listy, klienti, krám */
 function afterChange() {
   registerItems();
-  assets.ensureBlanks();
+  assets.ensureBlanks().catch((e) => console.log("[kresby] prázdné listy: " + String(e))); // po kouscích, na pozadí
   broadcastCfg();
 }
 
@@ -653,7 +655,8 @@ function schema(): SettingsField[] {
             { type: "select", key: "rezim", label: "Vykreslení", options: [{ value: "textura", label: "Textura na listu (osvětlená, stíny)" }, { value: "cary", label: "Ladicí čáry (Gizmos, svítí)" }, { value: "oboji", label: "Obojí (ladění)" }], default: "textura" },
             { type: "select", key: "sirka", label: "Rozlišení textury", options: [{ value: 512, label: "512 × 256 (≈ 90 kB)" }, { value: 1024, label: "1024 × 512 (≈ 350 kB)" }, { value: 2048, label: "2048 × 1024 (≈ 1,4 MB)" }], default: 1024 },
             { type: "select", key: "kvalita", label: "Vyhlazení rastru", options: [{ value: 1, label: "Rychlé" }, { value: 2, label: "Hladké (2× převzorkování)" }], default: 2 },
-            { type: "number", key: "shard", label: "Kreseb v jednom balíčku assetů", help: "Po nové kresbě hráči stáhnou jen její balíček.", min: 1, max: 500, integer: true, default: 24 },
+            { type: "number", key: "shard", label: "Kreseb ve studeném balíčku assetů", help: "Za běhu se nemění; horké kresby se do nich přelijí při startu serveru.", min: 1, max: 500, integer: true, default: 24 },
+            { type: "number", key: "horky", label: "Kreseb v horkém balíčku", help: "Nové kresby za běhu. Po nové kresbě ho stáhne každý připojený hráč (asi 350 kB na kresbu při 1024 × 512).", min: 1, max: 24, integer: true, default: 3 },
             { type: "number", key: "reloadS", label: "Nejkratší rozestup přenačtení balíčků", min: 5, max: 3600, integer: true, unit: "s", default: 30 },
             { type: "boolean", key: "konzole", label: "Přenačítat přes konzoli playgroundu", default: true },
             { type: "slider", key: "lesk", label: "Lesk listu (Shininess)", min: 0, max: 255, step: 1, default: 30 },

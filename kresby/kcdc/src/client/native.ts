@@ -6,7 +6,7 @@
 // Myš: clip.get("_xmouse"/"_ymouse") po 16 ms během tahu (AS2 vlastnosti, docs je neuvádějí - ověřuje
 // se zkouškou při otevření; když nefungují, open() vrátí false a klient zkusí HTML plátno).
 
-import { TOOL, SRC_H, SRC_W, type Drawing } from "../shared/codec";
+import { TOOL, SRC_H, SRC_W, type Drawing, type Stroke } from "../shared/codec";
 import { paperOf, PRESSURE, rgbInt, mixRGB, type RGB } from "../shared/ink";
 import { drawingOps, hash, strokeOps, type Ops } from "../shared/vector";
 import type { ViewMsg } from "../shared/protocol";
@@ -101,30 +101,41 @@ export function drawPaper(pen: Pen, paper: number) {
   for (let i = 0; i < 6; i++) pen.frame(i * 7, i * 7, SRC_W - i * 14, SRC_H - i * 14, 14, dark, 9 - i);
 }
 
-const qW = (w: number) => Math.max(0.5, Math.round(w * 4) / 4);
-const qA = (a: number) => Math.max(1, Math.min(100, Math.round(a * 25) * 4));
+/**
+ * Šířka čáry: do 1 px po čtvrtinách, výš po stupních ~12 % (2^(1/6)). Přítlak mění šířku plynule a každá jiná
+ * šířka je volání lineStyle navíc; dřív (po 0,25 px) to bylo skoro u každého segmentu.
+ */
+export const qW = (w: number) => (w <= 1 ? Math.max(0.5, Math.round(w * 4) / 4) : Math.round(2 ** (Math.round(Math.log2(w) * 6) / 6) * 8) / 8);
+export const qA = (a: number) => Math.max(1, Math.min(100, Math.round(a * 25) * 4));
 
 /**
  * Vykreslování po kouscích: tahy se kreslí v dávkách po `budget` voláních na snímek, ať hra nezaškobrtne
  * ani u kresby s tisíci segmenty.
  */
 export class Painter {
-  private queue: Ops[] = [];
+  private queue: { ops: Ops; pen: Pen }[] = [];
   private run = 0;
   private seg = 0;
   private dot = 0;
   private timer: number | null = null;
   constructor(private pen: Pen, private paper: number, private budget = 1500) {}
 
-  add(ops: Ops) {
-    this.queue.push(ops);
+  /** tahy do fronty; pen = do kterého clipu (výchozí ten z konstruktoru) */
+  add(ops: Ops, pen = this.pen) {
+    this.queue.push({ ops, pen });
     this.kick();
   }
   reset(ops: Ops) {
-    this.queue = [ops];
+    this.queue = [{ ops, pen: this.pen }];
     this.run = this.seg = this.dot = 0;
     this.pen.clear();
     this.kick();
+  }
+  /** zahodit, co čeká na kreslení do clipu pen (clip se maže) */
+  drop(pen: Pen) {
+    if (this.queue[0]?.pen === pen) this.run = this.seg = this.dot = 0;
+    this.queue = this.queue.filter((q) => q.pen !== pen);
+    if (!this.queue.length) this.stop();
   }
   stop() {
     if (this.timer !== null) clearInterval(this.timer);
@@ -142,20 +153,20 @@ export class Painter {
   step(): boolean {
     let n = 0;
     while (this.queue.length && n < this.budget) {
-      const ops = this.queue[0];
+      const { ops, pen } = this.queue[0];
       if (this.run < ops.runs.length) {
         const r = ops.runs[this.run];
         const pts = r.pts;
         const color = r.mode === 2 ? rgbInt(paperOf(this.paper).rgb) : r.color;
         if (this.seg === 0) {
-          this.pen.line(qW(r.w[0] ?? 1), color, qA(r.a[0] ?? 1));
-          this.pen.move(pts[0], pts[1]);
+          pen.line(qW(r.w[0] ?? 1), color, qA(r.a[0] ?? 1));
+          pen.move(pts[0], pts[1]);
           n += 2;
         }
         while (this.seg < r.w.length && n < this.budget) {
           const i = this.seg;
-          this.pen.line(qW(r.w[i]), color, qA(r.a[i]));
-          this.pen.to(pts[i * 2 + 2], pts[i * 2 + 3]);
+          pen.line(qW(r.w[i]), color, qA(r.a[i]));
+          pen.to(pts[i * 2 + 2], pts[i * 2 + 3]);
           this.seg++;
           n += 2;
         }
@@ -165,7 +176,7 @@ export class Painter {
         }
       } else if (this.dot < ops.dots.length) {
         const d = ops.dots[this.dot++];
-        this.pen.circle(d.x, d.y, Math.max(0.4, d.r), d.color, qA(d.alpha));
+        pen.circle(d.x, d.y, Math.max(0.4, d.r), d.color, qA(d.alpha));
         n += 12;
       } else {
         this.queue.shift();
@@ -174,6 +185,56 @@ export class Painter {
     }
     if (!this.queue.length) this.stop();
     return !this.queue.length;
+  }
+}
+
+/**
+ * Hotové tahy plátna po blocích: `size` tahů = jeden podřízený clip. Zpět, znovu nebo odmítnutý tah smaže
+ * a překreslí jen bloky od prvního změněného tahu (dřív celé plátno: u plné kresby ~40 000 volání = 27 snímků
+ * s blikáním). Nové tahy se jen přidají do posledního bloku.
+ */
+export class StrokeBlocks {
+  private blocks: { pen: Pen; drawn: Stroke[] }[] = [];
+  /** kolik tahů se při posledním sync smazalo a kreslí znovu (měření, testy) */
+  redrawn = 0;
+  constructor(private parent: NativeClip, private painter: Painter, private size = 32) {}
+
+  get count() {
+    return this.blocks.reduce((n, b) => n + b.drawn.length, 0);
+  }
+
+  sync(d: Drawing) {
+    const s = d.strokes;
+    const had = this.count;
+    let same = 0; // shodný začátek (tytéž objekty tahů)
+    outer: for (const b of this.blocks) {
+      for (const x of b.drawn) {
+        if (s[same] !== x) break outer;
+        same++;
+      }
+    }
+    const from = same === had ? had : Math.floor(same / this.size) * this.size;
+    this.redrawn = Math.max(0, Math.min(s.length, had) - from);
+    for (let bi = Math.floor(from / this.size); from < had && bi < this.blocks.length; bi++) {
+      const b = this.blocks[bi];
+      if (!b.drawn.length) continue;
+      this.painter.drop(b.pen);
+      b.pen.clear();
+      b.drawn = [];
+    }
+    for (let i = from; i < s.length; ) {
+      const bi = Math.floor(i / this.size);
+      const end = Math.min(s.length, (bi + 1) * this.size);
+      const b = this.block(bi);
+      b.drawn.push(...s.slice(i, end));
+      this.painter.add(drawingOps(d, 0, i, end), b.pen);
+      i = end;
+    }
+  }
+
+  private block(i: number) {
+    while (this.blocks.length <= i) this.blocks.push({ pen: new Pen(this.parent.createClip()!), drawn: [] });
+    return this.blocks[i];
   }
 }
 

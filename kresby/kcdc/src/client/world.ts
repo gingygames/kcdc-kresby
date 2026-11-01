@@ -53,9 +53,11 @@ const cache = new Map<string, Entry>(); // otisk -> kresba (LRU: poslední použ
 let cacheBytes = 0;
 const asked = new Map<string, number>(); // otisk -> kdy jsme o něj žádali
 const waiting = new Set<string>(); // ve frontě na EV.chci
-const live = new Map<string, { s: number; e: Entry; rev: number }>(); // "deska:list" -> cizí kreslení naživo
+// "deska:list" -> cizí kreslení naživo; reset se zvýší při zpět / nové relaci (pak se list kreslí znovu celý),
+// přidané tahy reset nemění (dokreslí se do dalších kreseb Gizmos, viz render)
+const live = new Map<string, { s: number; e: Entry; reset: number }>();
 let ownSlot = ""; // list, na který právě kreslím já (kreslí ho plátno)
-export const stats = { units: 0, ids: 0, sheets: 0, drawn: 0, plans: 0, planMs: 0, setMs: 0, requests: 0 };
+export const stats = { units: 0, ids: 0, sheets: 0, drawn: 0, plans: 0, planMs: 0, setMs: 0, requests: 0, appends: 0, rebuilds: 0 };
 
 const key = (b: number, s: number) => b + ":" + s;
 
@@ -154,14 +156,16 @@ export function onLive(m: LiveMsg) {
   if (m.end) return void live.delete(k);
   let l = live.get(k);
   if (m.inks || !l || l.s !== m.s) {
-    l = { s: m.s, e: { d: { paper: m.paper ?? 0, inks: m.inks ?? [], strokes: [] }, bytes: 0, plans: new Map() }, rev: 0 };
+    l = { s: m.s, e: { d: { paper: m.paper ?? 0, inks: m.inks ?? [], strokes: [] }, bytes: 0, plans: new Map() }, reset: (l?.reset ?? 0) + 1 };
     live.set(k, l);
   }
-  if (m.undo) l.e.d.strokes.splice(Math.max(0, l.e.d.strokes.length - m.undo), m.undo);
+  if (m.undo) {
+    l.e.d.strokes.splice(Math.max(0, l.e.d.strokes.length - m.undo), m.undo);
+    l.reset++;
+  }
   const add = m.add ? decode(m.add, MAX_INKS) : null;
   if (add) l.e.d.strokes.push(...add.strokes);
-  l.e.plans.clear();
-  l.rev++;
+  l.e.plans.clear(); // plány celé kresby (přestavba) neplatí; nové tahy si render dokreslí sám
 }
 
 // ---------------------------------------------------------------------------
@@ -170,6 +174,13 @@ export function onLive(m: LiveMsg) {
 interface Shown {
   sig: string;
   ids: string[];
+  /** kolik tahů kresby je nakreslených (živé kreslení: další se dokreslí do nových kreseb Gizmos) */
+  n: number;
+  units: number;
+  parts: number;
+  /** kdy se list naposled kreslil celý (živé kreslení: přestavba nejvýš jednou za sekundu) */
+  full: number;
+  level: number;
 }
 const shown = new Map<string, Shown>(); // list -> co z něj právě kreslíme
 const paperShown = new Map<number, string>(); // druh papíru -> podpis meshe
@@ -183,6 +194,10 @@ function argb(rgb: number, a: number) {
 /** úroveň LOD z poměru k = logických px listu na 1 px obrazovky (po půlkách oktávy) */
 const levelOf = (k: number) => Math.max(-4, Math.min(14, Math.round(Math.log2(Math.max(1e-3, k)) * 2)));
 const kOf = (level: number) => 2 ** (level / 2);
+
+/** podpis nakreslené podoby: kresba (u živé relace + reset), LOD a šířka čáry v px (mění se se vzdáleností: překreslit
+ * při změně o víc než ~30 %) */
+const sigOf = (h: string, level: number, lk: number) => h + ":" + level + ":" + Math.round(Math.log2(lk / kOf(level)) * 3);
 
 function planOf(e: Entry, level: number): GizmoPlan {
   let p = e.plans.get(level);
@@ -207,7 +222,7 @@ function setGizmo(id: string, prim: Parameters<typeof Gizmos.set>[1], style: Par
   }
 }
 
-function drawSheet(b: Board, si: number, plan: GizmoPlan, k: number, d: number, sig: string): string[] {
+function drawSheet(b: Board, si: number, plan: GizmoPlan, k: number, d: number, part = ""): string[] {
   const ids: string[] = [];
   const s = b.slots[si];
   const off = 0.012 + d * 0.0009;
@@ -228,11 +243,10 @@ function drawSheet(b: Board, si: number, plan: GizmoPlan, k: number, d: number, 
     const width = Math.max(0.5, Math.min(8, g.width / k));
     const style = { color: argb(g.color, g.alpha), width };
     for (let c = 0, start = 0; start < pts.length - 1; c++, start += GIZMO_MAX_POINTS - 1) {
-      const id = `k${b.m.id}_${si}_${gi}_${c}`;
+      const id = `k${b.m.id}_${si}${part}_${gi}_${c}`;
       if (setGizmo(id, { type: "polyline", points: pts.slice(start, start + GIZMO_MAX_POINTS) }, style)) ids.push(id);
     }
   });
-  void sig;
   return ids;
 }
 
@@ -299,7 +313,7 @@ export function render() {
       let h = "";
       if (sm.live) {
         const l = live.get(k);
-        if (l) (e = l.e), (h = "live" + l.s + ":" + l.rev);
+        if (l) (e = l.e), (h = "live" + l.s + ":" + l.reset);
       } else if (sm.h) {
         h = sm.h;
         e = cache.get(sm.h) ?? null;
@@ -352,8 +366,42 @@ export function render() {
   // tahy: nejbližší listy první, co se nevejde, hrubší LOD
   const keep = new Set<string>();
   let drawn = 0;
+  const now = Date.now();
   for (const c of cands) {
     if (!c.e || c.d > cfg.drawRange || !c.e.d.strokes.length) continue;
+    const n = c.e.d.strokes.length;
+    const prev = shown.get(c.k);
+    // živé kreslení: nové tahy se naplánují samy a dokreslí do dalších kreseb Gizmos; celý list se přestaví po zpět,
+    // při změně LOD a nejvýš jednou za sekundu, když dokreslených kreseb Gizmos přibývá (spojí se zpátky)
+    const same = prev !== undefined && prev.sig === sigOf(c.h, prev.level, c.lk);
+    if (same && prev!.n === n && c.h.startsWith("live") && units + prev!.units <= cfg.gizmoUnits && ids + prev!.ids.length <= cfg.gizmoIds) {
+      // živý list beze změny: plány celé kresby se po každé zprávě zahazují, tak je nepočítat znovu
+      units += prev!.units;
+      ids += prev!.ids.length;
+      keep.add(c.k);
+      drawn++;
+      continue;
+    }
+    if (same && prev!.n < n && (prev!.parts < 8 || now - prev!.full < 1000)) {
+      const sh = prev!;
+      const k = kOf(sh.level);
+      const t = Date.now();
+      const p = gizmoPlan(c.e.d, sh.level <= -2 ? 0 : 0.5 * k, 0.08 * k, k, undefined, sh.n);
+      stats.planMs += Date.now() - t;
+      if (units + sh.units + p.units <= cfg.gizmoUnits && ids + sh.ids.length + p.ids <= cfg.gizmoIds) {
+        const t2 = Date.now();
+        sh.ids.push(...drawSheet(c.b, c.si, p, c.lk, c.d, "x" + ++sh.parts));
+        stats.setMs += Date.now() - t2;
+        sh.units += p.units;
+        sh.n = n;
+        stats.appends++;
+        units += sh.units;
+        ids += sh.ids.length;
+        keep.add(c.k);
+        drawn++;
+        continue;
+      }
+    }
     let level = levelOf(c.lk);
     let plan: GizmoPlan | null = null;
     for (let tries = 0; tries < 4; tries++, level += 2) {
@@ -364,19 +412,21 @@ export function render() {
       }
     }
     if (!plan) continue;
-    const k = kOf(level);
-    // šířka čáry v px se mění se vzdáleností: překreslit při změně o víc než ~30 %
-    const sig = c.h + ":" + level + ":" + Math.round(Math.log2(c.lk / k) * 3);
-    units += plan.units;
-    ids += plan.ids;
+    const sig = sigOf(c.h, level, c.lk);
     keep.add(c.k);
     drawn++;
-    const prev = shown.get(c.k);
-    if (prev?.sig === sig) continue;
+    if (prev?.sig === sig && prev.n === n) {
+      units += prev.units;
+      ids += prev.ids.length;
+      continue;
+    }
+    units += plan.units;
+    ids += plan.ids;
     clearSheet(c.k);
     const t = Date.now();
-    shown.set(c.k, { sig, ids: drawSheet(c.b, c.si, plan, c.lk, c.d, sig) });
+    shown.set(c.k, { sig, ids: drawSheet(c.b, c.si, plan, c.lk, c.d), n, units: plan.units, parts: 0, full: now, level });
     stats.setMs += Date.now() - t;
+    stats.rebuilds++;
   }
   for (const k of [...shown.keys()]) if (!keep.has(k)) clearSheet(k);
   stats.units = units;

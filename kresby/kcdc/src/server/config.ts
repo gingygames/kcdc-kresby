@@ -114,7 +114,8 @@ export interface Config {
     rezim: "textura" | "cary" | "oboji"; // textura = osvětlený list se stíny; cary = ladicí 3D čáry (Gizmos)
     sirka: number; // šířka textury kresby v px (výška = polovina): 512, 1024, 2048
     kvalita: number; // převzorkování rastru (1 = rychle, 2 = hladší čáry)
-    shard: number; // kolik kreseb v jednom balíčku assetů (po nové kresbě se stahuje jen ten balíček)
+    shard: number; // kolik kreseb ve studeném balíčku assetů (za běhu se nemění, přenačítá se jen při startu serveru)
+    horky: number; // kolik kreseb v horkém balíčku (nové kresby za běhu; po nové kresbě ho stáhne každý hráč, ~350 kB na kresbu)
     predpona: string; // jméno balíčků assetů: <predpona>-<n>
     slozka: string; // složka resources serveru (relativně ke složce serveru)
     reloadMs: number; // nejkratší rozestup přenačtení balíčků
@@ -245,6 +246,7 @@ export const DEFAULTS: Config = {
     sirka: 1024,
     kvalita: 2,
     shard: 24,
+    horky: 3,
     predpona: "kresby-obrazy",
     slozka: "resources",
     reloadMs: 30000,

@@ -95,8 +95,25 @@ function space(ns: string): Record<string, JsonValue> {
   spaces.set(ns, s);
   return s;
 }
+// zápis prostoru se slučuje: první hned, další nejdřív za WRITE_MS (dřív se celý soubor, u kreseb ~1,6 MB, psal
+// při každém set; dávka 50 klíčů = 50 zápisů). Při zastavení kteréhokoli resource se dopíše hned.
+const WRITE_MS = 1000;
+const lastWrite = new Map<string, number>();
+const pendingWrite = new Map<string, ReturnType<typeof setTimeout>>();
 function persist(ns: string) {
-  if (!fs) return;
+  if (!fs || pendingWrite.has(ns)) return;
+  const wait = (lastWrite.get(ns) ?? -Infinity) + WRITE_MS - Date.now();
+  if (wait <= 0) return writeSpace(ns);
+  pendingWrite.set(ns, setTimeout(() => writeSpace(ns), wait));
+}
+Events.on("resourceStop", () => {
+  for (const ns of [...pendingWrite.keys()]) writeSpace(ns);
+});
+function writeSpace(ns: string) {
+  const t = pendingWrite.get(ns);
+  if (t !== undefined) clearTimeout(t);
+  pendingWrite.delete(ns);
+  lastWrite.set(ns, Date.now());
   try {
     fs.mkdirSync(dir(), { recursive: true });
     fs.writeFileSync(`${dir()}/${ns}.json.tmp`, JSON.stringify(space(ns)));

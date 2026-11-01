@@ -60,7 +60,7 @@ export function paperAt(kod: number, lx: number, ly: number, w: number, h: numbe
 }
 
 /** pracovní "hodiny": generátor se po vyčerpání dávky práce vzdá řízení */
-class Budget {
+export class Budget {
   ops = 0;
   constructor(public limit = 60000) {}
   tick(w = 1) {
@@ -72,6 +72,52 @@ class Budget {
     return false;
   }
 }
+
+// ---------------------------------------------------------------------------
+// zásobník bufferů: jedno upečení kresby potřebuje ~50 MB polí (plátno, maska, převzorkování, mipmapy). Mezi kresbami
+// se pole vracejí sem a další kresba je použije znovu (méně práce pro GC; assets.ts zásobník po chvíli nečinnosti vyprázdní).
+
+const pools = new Map<string, (Float32Array | Int32Array)[]>();
+let pooled = 0;
+const POOL_MAX = 96 * 1024 * 1024;
+export const poolStats = { hits: 0, misses: 0 };
+
+/** pole Float32Array délky n (ze zásobníku, obsah nedefinovaný, pokud zero = false) */
+export function f32(n: number, zero = false): Float32Array {
+  const a = pools.get("f" + n)?.pop() as Float32Array | undefined;
+  if (!a) return poolStats.misses++, new Float32Array(n);
+  poolStats.hits++;
+  pooled -= a.byteLength;
+  if (zero) a.fill(0);
+  return a;
+}
+
+function i32(n: number): Int32Array {
+  const a = pools.get("i" + n)?.pop() as Int32Array | undefined;
+  if (!a) return poolStats.misses++, new Int32Array(n);
+  poolStats.hits++;
+  pooled -= a.byteLength;
+  return a;
+}
+
+/** pole zpět do zásobníku (volající je už nesmí používat) */
+export function release(...arrs: (Float32Array | Int32Array | null | undefined)[]) {
+  for (const a of arrs) {
+    if (!a || pooled + a.byteLength > POOL_MAX) continue;
+    const k = (a instanceof Float32Array ? "f" : "i") + a.length;
+    let l = pools.get(k);
+    if (!l) pools.set(k, (l = []));
+    if (l.includes(a)) continue;
+    l.push(a);
+    pooled += a.byteLength;
+  }
+}
+
+export function drainPool() {
+  pools.clear();
+  pooled = 0;
+}
+export const pooledBytes = () => pooled;
 
 function* fillPaper(cv: Canvas, kod: number, k: number, b: Budget) {
   const { w, h, px } = cv;
@@ -238,22 +284,32 @@ function* drawStroke(cv: Canvas, s: Stroke, d: Drawing, seed: number, k: number,
 export function* renderSheet(d: Drawing, k: number, limit = 60000): Generator<void, Canvas> {
   const w = Math.round(768 * k);
   const h = Math.round(512 * k);
-  const cv: Canvas = { w, h, px: new Float32Array(w * h * 3) };
+  const cv: Canvas = { w, h, px: f32(w * h * 3) }; // fillPaper zapíše každý pixel
   const b = new Budget(limit);
   yield* fillPaper(cv, d.paper, k, b);
-  const mask = new Float32Array(w * h);
-  const touched = new Int32Array(w * h);
+  // maska je po každém tahu zase nulová (drawStroke nuluje, na co sáhl), do zásobníku se vrací jen po celém průchodu
+  const mask = f32(w * h, true);
+  const touched = i32(w * h);
   for (let i = 0; i < d.strokes.length; i++) yield* drawStroke(cv, d.strokes[i], d, i + 1, k, mask, touched, b);
+  release(mask, touched);
   return cv;
 }
 
 /** zmenšení plochou (box filter s podílem pixelů), libovolný poměr: z plátna na rozměr textury */
 export function resample(src: Canvas, w: number, h: number): Canvas {
-  const out: Canvas = { w, h, px: new Float32Array(w * h * 3) };
+  return runSync(resampleSteps(src, w, h, new Budget(1e15)));
+}
+
+/** resample po kouscích (po řádcích), `yield` po dávce práce rozpočtu */
+export function* resampleSteps(src: Canvas, w: number, h: number, b: Budget): Generator<void, Canvas> {
+  const out: Canvas = { w, h, px: f32(w * h * 3) };
   const sx = src.w / w;
   const sy = src.h / h;
+  const spx = src.px;
+  const sw = src.w;
   // nejdřív vodorovně, pak svisle
-  const tmp = new Float32Array(w * src.h * 3);
+  const tmp = f32(w * src.h * 3);
+  const rowCost = w * Math.ceil(sx + 1);
   for (let y = 0; y < src.h; y++) {
     for (let x = 0; x < w; x++) {
       const a = x * sx;
@@ -263,37 +319,36 @@ export function resample(src: Canvas, w: number, h: number): Canvas {
       let bl = 0;
       for (let i = floor(a); i < Math.ceil(bnd); i++) {
         const wgt = Math.min(bnd, i + 1) - Math.max(a, i);
-        const o = (y * src.w + Math.min(src.w - 1, i)) * 3;
-        r += src.px[o] * wgt;
-        g += src.px[o + 1] * wgt;
-        bl += src.px[o + 2] * wgt;
+        const o = (y * sw + Math.min(sw - 1, i)) * 3;
+        r += spx[o] * wgt;
+        g += spx[o + 1] * wgt;
+        bl += spx[o + 2] * wgt;
       }
       const t = (y * w + x) * 3;
       tmp[t] = r / sx;
       tmp[t + 1] = g / sx;
       tmp[t + 2] = bl / sx;
     }
+    if (b.tick(rowCost)) yield;
   }
-  for (let x = 0; x < w; x++) {
-    for (let y = 0; y < h; y++) {
-      const a = y * sy;
-      const bnd = a + sy;
-      let r = 0;
-      let g = 0;
-      let bl = 0;
-      for (let i = floor(a); i < Math.ceil(bnd); i++) {
-        const wgt = Math.min(bnd, i + 1) - Math.max(a, i);
-        const o = (Math.min(src.h - 1, i) * w + x) * 3;
-        r += tmp[o] * wgt;
-        g += tmp[o + 1] * wgt;
-        bl += tmp[o + 2] * wgt;
-      }
-      const t = (y * w + x) * 3;
-      out.px[t] = r / sy;
-      out.px[t + 1] = g / sy;
-      out.px[t + 2] = bl / sy;
+  // svisle po řádcích výstupu (souvislá paměť, rychlejší než po sloupcích; mezisoučty ve float32, rozdíl < 0,01)
+  const opx = out.px;
+  const rw = w * 3;
+  const rowCost2 = rw * Math.ceil(sy + 1);
+  for (let y = 0; y < h; y++) {
+    const a = y * sy;
+    const bnd = a + sy;
+    const t0 = y * rw;
+    opx.fill(0, t0, t0 + rw);
+    for (let i = floor(a); i < Math.ceil(bnd); i++) {
+      const wgt = Math.min(bnd, i + 1) - Math.max(a, i);
+      const o = Math.min(src.h - 1, i) * rw;
+      for (let x = 0; x < rw; x++) opx[t0 + x] += tmp[o + x] * wgt;
     }
+    for (let x = 0; x < rw; x++) opx[t0 + x] /= sy;
+    if (b.tick(rowCost2)) yield;
   }
+  release(tmp);
   return out;
 }
 

@@ -36,12 +36,15 @@ Každé volání mostu je v `try`. Výjimka nebo nečekaná návratová hodnota 
 
 KCDC nemá texturu ze skriptu za běhu. Kresby to obcházejí přes streamování assetů (docs KCDC „Custom assets“):
 
-1. Pověšená kresba se na serveru vykreslí (`src/server/raster.ts`, všechny efekty) a uloží do **samostatného resource bez skriptů** `kresby-obrazy-<n>` ve složce resources serveru: textura `stream/textures/kcdc/<n>/k<id>.dds(.1–.4)` (BC1 sRGB, mipmapy rozdělené jako textury hry, `src/server/dds.ts`), model listu `stream/objects/kcdc/<n>/k<id>.cgf + .cgfm` a materiál `.mtl` (`src/server/cgf.ts`). Balíček 0 = čisté listy všech druhů papíru. Po `svet.shard` (24) kresbách nový balíček, aby nová kresba znamenala stažení jen jednoho.
+1. Pověšená kresba se na serveru vykreslí (`src/server/raster.ts`, všechny efekty; rastr, převzorkování, mipmapy i BC1 po kouscích, nejvýš `svet.rozpocetMs` na krok) a uloží do **samostatného resource bez skriptů** `kresby-obrazy-<n>` ve složce resources serveru: textura `stream/textures/kcdc/<n>/k<id>.dds(.1–.4)` (BC1 sRGB, mipmapy rozdělené jako textury hry, `src/server/dds.ts`), model listu `stream/objects/kcdc/<n>/k<id>.cgf + .cgfm` a materiál `.mtl` (`src/server/cgf.ts`). Balíček 0 = čisté listy všech druhů papíru.
+   - **Horké a studené balíčky (od 1. 11. 2026):** přenačtený balíček stáhne znovu každý připojený hráč. Nové kresby za běhu proto jdou do malého horkého balíčku (`svet.horky`, výchozí 3 kresby ≈ 1 MB), přenačítá se jen ten. Studené balíčky (`svet.shard`, 24) se za běhu nemění: smazaná kresba nechá díru a balíček se nepřenačte. Při startu kreseb **bez připojených hráčů a s funkčním přenačtením** se kresby z horkých balíčků přesunou do děr a nových studených balíčků (textura přejmenováním, model a materiál znovu) a přenačtou se. Chybějící textury při startu jdou rovnou do studených (jen když nikdo není připojený). Bez háku ani konzole se nepřelévá a horké balíčky mají plnou velikost `svet.shard`.
+   - Stav balíčků (`hot`) je v `kresby:obrazy`; zápis se slučuje s ostatními (`CFG.saveMs`).
 2. Balíček se musí **přenačíst** (`start` u nového po `refresh`, `restart` u změněného). Skript resource to sám neumí, proto hák v tomto pořadí:
    - `KRESBY_CONFIG.svet.reload(novych: string[], zmenenych: string[])` – **na cizím serveru doplňte** (RCON, txAdmin, vlastní konzole, cokoli, co pošle příkazy do konzole KCDC). Na restart závislých resource pozor: balíčky nemají závislosti a nikdo na nich nezávisí.
    - konzole playgroundu (`logs/playground.pid` → TCP 127.0.0.1:<consolePort>, `{"lines":[…]}`), vypnout `svet.konzole = false`,
    - nic: textury se ukážou po restartu serveru (server zabalí balíčky při startu), do té doby visí čistý list. Log napíše příkazy, které je třeba spustit.
-3. Po `resourceStart` balíčku (a ~1,5 s, KCDC balí assety až po startu skriptů) server postaví / vymění list jako `Prop` s modelem kresby (`src/server/props.ts`, `physics: "none"`, měřítko podle listu). Co se nepostaví, zkouší znovu po 3 s.
+3. Po `resourceStart` balíčku (a ~1,5 s, KCDC balí assety až po startu skriptů) server postaví / vymění list jako `Prop` s modelem kresby (`src/server/props.ts`, `physics: "none"`, měřítko podle listu) a pošle `EV.deska` jen deskám s kresbou, která právě přestala čekat. Co se nepostaví, zkouší znovu po 3 s.
+   - **Generace přenačtení:** každý zápis do balíčku zvýší jeho generaci a odeslané přenačtení si ji zapamatuje. Kresba zapsaná až po odeslání restartu po `resourceStart` dál čeká (`pend`) a balíček se přenačte znovu. Když `resourceStart` po odeslání nepřijde (hák selhal potichu), balíček se po `max(60 s, 2 × reloadMs)` pošle znovu, odstup se při dalších nezdarech zdvojnásobuje (nejvýš 16×). Na cizím serveru tedy hák nemusí hlásit úspěch, stačí, aby balíček opravdu restartoval.
 4. Režim `svet.rezim`: `textura` (výchozí), `cary` (staré ladicí 3D čáry Gizmos, svítí), `oboji`. Bez `require("fs")` v serverovém skriptu (jiný hosting) se textury vypnou a zůstane `cary`.
 
 Stav (co je u klientů, co čeká) je v `most.storage` pod `kresby:obrazy`. Diagnostika: konzole `kresby info`, ve hře `/kresby info`.
@@ -58,7 +61,7 @@ Výchozí hodnoty a všechny klíče najdete v `src/server/config.ts` (`DEFAULTS
 | `shop`, `kram` | ceny; `"nativni"` = obchod hry v groších, `"menu"` = nabídka placená `most.economy.remove` (vlastní měna frameworku) |
 | `tearDown`, `cooldownMs`, `maxPoints`, `maxStrokes`, `itemDataMax` | pravidla serveru |
 | `stojan.model / up / forward / tilt / yaw` | jiný model stojanu nebo poloha líce |
-| `svet.*` | textury ve světě: `rezim`, `sirka` (512/1024/2048), `kvalita`, `shard`, `reloadMs`, `reload` (hák, viz 2b), `konzole`, `slozka` (resources serveru), `predpona` (`kresby-obrazy`), `lesk`, `odsazeni` |
+| `svet.*` | textury ve světě: `rezim`, `sirka` (512/1024/2048; 512 × 256 ≈ 90 kB místo ~350 kB na kresbu, ostrost ve hře zatím neověřená, proto výchozí 1024), `kvalita`, `shard` (studený balíček), `horky` (horký balíček, viz 2b), `reloadMs`, `reload` (hák, viz 2b), `konzole`, `slozka` (resources serveru), `predpona` (`kresby-obrazy`), `lesk`, `odsazeni`, `rozpocetMs` |
 | `papiry`, `nastroje`, `michani`, `velikost`, `moderace` | druhy listů (kód 0–31 je trvalý v datech kreseb), nástroje (předmět, zapnuto), míchání a ředění, rozsah stopy, zakázaná slova a kvóta vystavených |
 | `klient.useKey` | klávesa u desky (musí být v `ActionHint.keys()`, jinak klient použije `Key.bind` a infotext) |
 | `klient.gizmoUnits / gizmoIds` | podíl kreseb na sdíleném rozpočtu Gizmos (16 384 úseků pro všechny resources, 128 kreseb na resource) |
@@ -105,12 +108,13 @@ Všechny zprávy jdou přes `src/server/net.ts` (`sendTo`, `onClient`) a `src/cl
 ## 7. Jak testovat
 
 ```sh
-cd kresby/kcdc && npm install && npm test        # build + 46 testů, ~10 s
+cd kresby/kcdc && npm install && npm test        # build + 61 testů, ~1 min
+npm run perf                                     # jen výkonové testy s čísly
 powershell -ExecutionPolicy Bypass -File playground\nasadit.ps1 -Jen kresby   # playground: jednou, pak log
 ```
 - `test/fake.ts` je falešné API KCDC (server, klienti, Scaleform clip s kreslicím API, Gizmos s rozpočtem a limity, Inventory po řádcích s limitem 16 KiB a odmítáním `\n`, Dialogue, Vendor, Exports/Imports). Funkce `world()` propojí server a klienty přes JSON jako ve hře.
 - Adaptér frameworku vyzkoušejte tak, že do `makeServer({ most: { api: vášMost } })` dáte vlastní objekt mostu (viz test „most: identita, práva…“ v `test/server.test.ts`) a pustíte testy.
-- `test/sync.test.ts` celý tok od nápovědy akce po restart serveru, `test/server.test.ts` materiál, limity, perzistence, most, sprava, moderace, `test/perf.test.ts` výkon (čísla v README), `test/codec.test.ts` kodek + kompatibilita k2 s KCD:MP (`tools/lua_k2.py`, potřebuje `pip install lupa`).
+- `test/sync.test.ts` celý tok od nápovědy akce po restart serveru, `test/server.test.ts` materiál, limity, perzistence, most, sprava, moderace, `test/balicky.test.ts` horké a studené balíčky, přelévání při startu, zprávy po přenačtení a generace / opakování přenačtení, `test/perf.test.ts` výkon (čísla v README: server, klient v režimu čar, cizí živé kreslení, pečení po kouscích, zpět na nativním plátně), `test/codec.test.ts` kodek + kompatibilita k2 s KCD:MP (`tools/lua_k2.py`, potřebuje `pip install lupa`).
 - Na playgroundu ověřte v `server/logs/playground.log`: `[kresby] běží: most …, úložiště most`, `[sprava] panely modulu kresby: kresby` a žádné `Invalid custom item text`.
 
 ## 8. Co KCDC 1.7.2 neumí (a jak to modul obchází)

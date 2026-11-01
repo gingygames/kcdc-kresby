@@ -132,6 +132,28 @@ body.k-dragging .k-rs { pointer-events: auto; }
 /* potvrzovací okna se při přesouvatelném okně zobrazí jen nad ním, ne přes celou obrazovku hry */
 html.k-windowed .k-modal { inset: auto; left: var(--k-win-x); top: var(--k-win-y); width: var(--k-win-w); height: var(--k-win-h); border-radius: var(--k-r-lg); }
 
+/* ---------- vlastní tooltip (data-tip) a výběr (k-select) ---------- */
+.k-tip { position: fixed; z-index: 3000; max-width: 22rem; padding: 0.3rem 0.6rem; border: 1px solid var(--k-line); border-radius: var(--k-r-sm); background: var(--k-raised); color: var(--k-text); font: var(--k-fs-sm)/1.35 var(--k-font); box-shadow: var(--k-shadow-2); white-space: pre-line; pointer-events: none; opacity: 0; transition: opacity var(--k-t-fast) var(--k-ease); left: -999px; top: -999px; }
+.k-tip.is-on { opacity: 1; }
+.k-select { display: inline-flex; align-items: center; justify-content: space-between; gap: var(--k-s2); min-height: 2.2rem; padding: 0.35rem var(--k-s3); border: 1px solid var(--k-line); border-radius: var(--k-r-sm); background: var(--k-input); color: var(--k-text); font: inherit; text-align: left; cursor: pointer; max-width: 100%; transition: border-color var(--k-t-fast) var(--k-ease), box-shadow var(--k-t-fast) var(--k-ease); }
+.k-select--full { width: 100%; }
+/* původní select je skrytý vždy (i po sel.style.display = ""); jeho skrytí (hidden, display: none) sada promítne do tlačítka */
+.k-select-native { display: none !important; }
+.k-select[hidden] { display: none !important; }
+.k-field .k-select { width: 100%; }
+.k-field.is-error .k-select, .k-field.is-error .k-select:hover { border-color: var(--k-err); }
+.k-select:hover:not(:disabled) { border-color: var(--k-faint); }
+.k-select:focus, .k-select:focus-visible { outline: none; border-color: var(--k-accent); box-shadow: 0 0 0 3px rgba(224, 170, 74, 0.28); }
+.k-select:disabled { opacity: 0.5; cursor: not-allowed; }
+.k-select-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.k-select-caret { flex: none; color: var(--k-muted); font-size: 0.8em; }
+.k-select-list { position: fixed; z-index: 2500; overflow-y: auto; padding: var(--k-s1); background: var(--k-raised); border: 1px solid var(--k-accent); border-radius: var(--k-r); box-shadow: var(--k-shadow-3); font: 1rem/1.35 var(--k-font); color: var(--k-text); animation: k-fade var(--k-t-fast) var(--k-ease); }
+.k-select-item { padding: 0.3rem var(--k-s3); border-radius: var(--k-r-sm); cursor: pointer; white-space: nowrap; }
+.k-select-item.is-active { background: var(--k-surface-2); }
+.k-select-item.is-sel { color: var(--k-accent); font-weight: 600; }
+.k-select-item.is-disabled { color: var(--k-faint); cursor: default; }
+.k-select-group { padding: 0.3rem var(--k-s3) 0.1rem; color: var(--k-muted); font-size: var(--k-fs-xs); font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; }
+
 /* ---------- stavy: načítání, prázdno ---------- */
 .k-spinner { display: inline-block; width: 1.1em; height: 1.1em; border: 2px solid var(--k-line); border-top-color: var(--k-accent); border-radius: 50%; animation: k-spin 0.8s linear infinite; vertical-align: -0.2em; }
 .k-skeleton { border-radius: var(--k-r-sm); background: linear-gradient(90deg, var(--k-surface) 25%, var(--k-surface-2) 50%, var(--k-surface) 75%) 0 / 200% 100%; animation: k-shimmer 1.2s linear infinite; min-height: 1rem; }

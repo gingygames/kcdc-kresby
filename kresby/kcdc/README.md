@@ -39,8 +39,11 @@ Verze pro KCD:MP je zmrazená. Společný je jen formát kresby: KCDC zapisuje `
 | Co | Výsledek |
 |---|---|
 | Kresba na stropu (13 323 bodů) | k2 57 kB, **k3 15,6 kB**; zakódovat 4,9 ms, dekódovat 2,1 ms |
-| Textura listu 1024 × 512 (BC1, 8 mipmap) | **~350 kB** na kresbu, rozdělená jako textury hry (`.dds` + `.dds.1`–`.4`); vykreslení po kouscích nejvýš 6 ms na krok serveru |
-| Balíček assetů | po 24 kresbách (`svet.shard`): nová kresba = hráči stáhnou jeden balíček (~8 MB), ne všechny |
+| Textura listu 1024 × 512 (BC1, 8 mipmap) | **~350 kB** na kresbu (512 × 256 ≈ 90 kB, `svet.sirka`), rozdělená jako textury hry (`.dds` + `.dds.1`–`.4`); celé pečení (rastr, převzorkování, mipmapy, BC1) po kouscích: kresba na stropu 160 ms ve 2 450 krocích, nejdelší krok 0,4 ms, server dostane tick po `svet.rozpocetMs` (6 ms). Dřív převzorkování + mipmapy + BC1 naráz 55–75 ms (2048: ~190 ms). Buffery (~50 MB) se mezi kresbami používají znovu, soubory se zapisují přes `fs.promises` |
+| Balíček assetů | nové kresby za běhu do **horkého balíčku** (`svet.horky` = 3 kresby, ≤ 1 MB): nová kresba = připojení hráči stáhnou jen ten (64 hráčů ≈ 65 MB, dřív plný balíček 24 kreseb 8,2 MB = 525 MB). Studené balíčky (`svet.shard` = 24) se za běhu nemění ani po smazání; při startu serveru bez hráčů se horké kresby přelijí do nich |
+| Po přenačtení balíčku | zprávu `EV.deska` dostanou jen desky s kresbou, která právě přestala čekat (dřív všechny desky všem: ~830 zpráv / 580 kB při 64 hráčích) |
+| Živé kreslení u diváka | nové tahy se dokreslí do dalších kreseb Gizmos, celý list se přestaví po zpět a nejvýš 1× za s; kresba až do stropu (320 tahů po dvou): 138 ms klienta za 24 s kreslení, 745× `Gizmos.set` (dřív 1 059 ms, 136 plánů celé kresby, 2 989× `Gizmos.set`) |
+| Nativní plátno: zpět | tahy po blocích 32 v podřízených clipech, zpět překreslí jen poslední blok: ~2 300 volání Scaleformu, 2 snímky (dřív celé plátno ~25 600 volání, 17 snímků s blikáním); šířka čáry po ~12 % (o 14 % méně `lineStyle`) |
 | Ve světě | jeden `Prop` na list, hra ho streamuje a kreslí se svými mipmapami a LOD; žádné vlastní vykreslování v klientu |
 | Město: 50 vývěsek, 300 kreseb (1,3 mil. bodů) | 1,56 MB dat v úložišti, ~100 MB textur na disku serveru (13 balíčků); start serveru 2 ms |
 | Přepočet okolí pro 64 hráčů | 0,9 ms za průchod (1× za s); popisy desek ~7 kB na hráče za 20 s chůze |
@@ -53,7 +56,8 @@ Potřebuje Node 24+. Na test kompatibility s KCD:MP navíc Python 3 s `lupa`.
 cd kresby/kcdc
 npm install
 npm run build                                        # dist/kresby/
-npm test                                             # build + 46 testů (kodek, synchronizace, server, textury, nastavení, výkon)
+npm test                                             # build + 61 testů (kodek, synchronizace, server, textury a balíčky, nastavení, výkon)
+npm run perf                                         # jen výkonové testy s čísly (test/perf.test.ts)
 node node_modules/esbuild/bin/esbuild tools/nahled.ts --bundle --platform=node --outfile=dist/nahled.cjs && node dist/nahled.cjs   # náhled renderu -> docs/nahled-svet.png
 node tools/build.mjs --out <server KCDC>/resources/kresby   # nasazení (kresby_config.js se nepřepisuje)
 ```
@@ -116,7 +120,7 @@ Stejné akce jsou i v panelu **Kresby** ve správě: kresby poblíž s tlačítk
 ## Co ověřit ve hře (postup)
 1. Připojit se na playground, dojít k vývěsce (stojan s kresbou č. 10 u kostela, `/kresby kdo`). **List musí být osvětlený jako okolí, se stínem na desce, ne svítit.** Když list chybí nebo je fialový / černý: v `KCDC.log` hledat `kresby-obrazy`; `svet.rezim` přepnout na `cary` ve správě a nahlásit.
 2. Orientace listu: kresba čitelná zleva doprava, nahoře je horní okraj (jinak otočit osy v `src/shared/layout.ts` → `quatFromBasis`).
-3. Nakreslit novou kresbu a nechat ji viset: hned visí list s přesýpacími hodinami uhlem (kresba se načítá), za ~30 s (`svet.reloadS`) se vymění za kresbu (balíček se stáhne bez odpojení).
+3. Nakreslit novou kresbu a nechat ji viset: hned visí čistý list a tahy přes něj čarami, za ~30 s (`svet.reloadS`) se vymění za kresbu (balíček se stáhne bez odpojení). **Od 1. 11.:** server se při pečení nesmí zaškobrtnout (hráči kolem se hýbou plynule), přenačte se jen horký balíček (`/kresby info` → „Textury: … horkých“, v logu `přenačítám balíčky textur: restart kresby-obrazy-N` s jedním malým balíčkem) a ostatní hráči nemají při přenačtení zásek. Po restartu serveru (bez hráčů) log `… přesunuto do studených` a kresby visí dál. Divák u cizího kreslení: čáry přibývají plynule, žádné blikání celého listu. Plátno: Ctrl+Z u plného listu nebliká (zmizí jen poslední tah).
 4. „Prohlédnout“ na desce: kamera plynule přelétne na list (0,7 s), Esc nebo pohyb plynule zpět, postava se během přeletu nehne. Dokud se textura načítá, ukáže se kresba přes list s hláškou „načítá se“. Z brašny: inventář se zavře a ukáže se kresba (Esc / Enter zavře až po 0,6 s).
 5. F10 → Nastavení → Kresby: přidat inkoust (barva, suroviny), uložit, `/kresby dat <já> inkoust <id>`; přidat druh listu; přesunout vývěsku přes „Vzít moji pozici a směr“.
 6. Čitelnost z 1, 3 a 8 m proti náhledu ([docs/nahled-svet.png](docs/nahled-svet.png)), FPS u vývěsky s 6 kresbami.
@@ -133,6 +137,6 @@ Zjištěno na serveru: KCDC odmítne zalomení řádku v textu předmětu (`Inva
 
 ## Soubory
 - `src/shared/`: kodek (`codec.ts`), inkousty a spotřeba (`ink.ts`, stejné vzorce jako KCD:MP), vzhled z nastavení (`look.ts`: druhy listů, efekty nástrojů), vektorové vykreslení (`vector.ts`, plátno a ladicí čáry), geometrie desek (`layout.ts`), protokol (`protocol.ts`).
-- `src/server/`: `main.ts` (události), `most.ts` (napojení na framework), `store.ts` (úložiště), `materials.ts`, `boards.ts` (desky a zájem), `sessions.ts` (živé kreslení), `drawings.ts` (předměty, nabídka u desky, moderace, data), `admin.ts` (příkazy a panel správy), `settings.ts` (editor nastavení ve správě), `config.ts`; textury ve světě: `raster.ts` (rastr s efekty, převod `kresby_png.lua`), `dds.ts` (textura hry), `cgf.ts` (model listu a materiál), `assets.ts` (balíčky `kresby-obrazy-N`, přenačtení), `props.ts` (listy jako Prop).
+- `src/server/`: `main.ts` (události), `most.ts` (napojení na framework), `store.ts` (úložiště), `materials.ts`, `boards.ts` (desky a zájem), `sessions.ts` (živé kreslení), `drawings.ts` (předměty, nabídka u desky, moderace, data), `admin.ts` (příkazy a panel správy), `settings.ts` (editor nastavení ve správě), `config.ts`; textury ve světě: `raster.ts` (rastr s efekty, převod `kresby_png.lua`), `dds.ts` (textura hry), `cgf.ts` (model listu a materiál), `assets.ts` (balíčky `kresby-obrazy-N`: horké a studené, přenačtení s generacemi, pečení po kouscích), `props.ts` (listy jako Prop).
 - `src/client/`: `main.ts`, `hooks.ts` (vyměnitelné UI), `session.ts` (relace, dávky, kamera), `native.ts` (Scaleform), `web.ts` + `src/web/platno.ts` + `ui/platno.html` (záložní HTML), `world.ts` (Gizmos, LOD, data).
 - `test/`: falešné API (`fake.ts`), testy kodeku, synchronizace, serveru, textur (`assets.test.ts`), nastavení (`settings.test.ts`, i proti `sprava/src/settings-core.ts`) a výkonu. `tools/nahled.ts` vyrobí náhled renderu. `tools/lua_k2.py` kontroluje k2 proti `../server/kresby_png.lua`.

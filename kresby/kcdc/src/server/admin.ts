@@ -67,7 +67,8 @@ export function info(): string {
     `Kresby: ${st.boards} desek, ${drawings} vystavených kreseb (${hidden} zabavených), ${activeSessions()} se právě kreslí.`,
     `Úložiště: ${st.storage}, zápisů ${st.writes}, čeká ${st.pending}. Mezipaměť ${st.cached} kreseb / ${(st.cacheBytes / 1024).toFixed(0)} kB.`,
     `Napojení: ${most.mostInfo()}.`,
-    `Svět: ${CFG.svet.rezim}, listů ve světě ${sheets.count()} (nepostavených ${sheets.stats.failed}), textur vykresleno ${assets.stats.rendered} za ${assets.stats.renderMs} ms, ${(assets.stats.bytes / 1048576).toFixed(1)} MB, přenačtení balíčků ${assets.stats.reloads}${assets.stats.lastError ? ", chyba: " + assets.stats.lastError : ""}.`,
+    `Svět: ${CFG.svet.rezim}, listů ve světě ${sheets.count()} (nepostavených ${sheets.stats.failed}), textur vykresleno ${assets.stats.rendered} za ${assets.stats.renderMs} ms, ${(assets.stats.bytes / 1048576).toFixed(1)} MB, přenačtení balíčků ${assets.stats.reloads} (znovu ${assets.stats.retries})${assets.stats.lastError ? ", chyba: " + assets.stats.lastError : ""}.`,
+    `Textury: ${assets.summary()}.`,
   ].join("\n");
 }
 

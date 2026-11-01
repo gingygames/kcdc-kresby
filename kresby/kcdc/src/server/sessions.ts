@@ -455,18 +455,24 @@ export function onCanvasError(p: Player, raw: unknown) {
 export function flushLive() {
   for (const s of sessions.values()) {
     const vs = viewers(s.b, s.p.id);
-    const encInks = s.inks.map((i) => i.ink);
+    // zprávy se skládají jednou za průchod (dřív se celý stav kódoval znovu pro každého nového diváka)
+    let full: LiveMsg | null = null;
+    let delta: LiveMsg | null = null;
     for (const v of vs) {
       if (!s.sentTo.has(v.id)) {
         s.sentTo.add(v.id);
-        const m: LiveMsg = { b: s.b.id, slot: s.slot, s: s.id, paper: s.paper, inks: encInks };
-        if (s.strokes.length) m.add = encodeK3({ paper: s.paper, inks: [], strokes: s.strokes });
-        sendTo(v, EV.zive, m);
+        if (!full) {
+          full = { b: s.b.id, slot: s.slot, s: s.id, paper: s.paper, inks: s.inks.map((i) => i.ink) };
+          if (s.strokes.length) full.add = encodeK3({ paper: s.paper, inks: [], strokes: s.strokes });
+        }
+        sendTo(v, EV.zive, full);
       } else if (s.pending.length || s.undo) {
-        const m: LiveMsg = { b: s.b.id, slot: s.slot, s: s.id };
-        if (s.undo) m.undo = s.undo;
-        if (s.pending.length) m.add = encodeK3({ paper: s.paper, inks: [], strokes: s.pending });
-        sendTo(v, EV.zive, m);
+        if (!delta) {
+          delta = { b: s.b.id, slot: s.slot, s: s.id };
+          if (s.undo) delta.undo = s.undo;
+          if (s.pending.length) delta.add = encodeK3({ paper: s.paper, inks: [], strokes: s.pending });
+        }
+        sendTo(v, EV.zive, delta);
       }
     }
     // kdo odešel z dosahu, dostane konec a při návratu celý stav znovu
