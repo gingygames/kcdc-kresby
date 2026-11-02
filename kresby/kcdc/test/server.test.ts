@@ -3,7 +3,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { encodeK3, type Stroke } from "../src/shared/codec";
 import { EV } from "../src/shared/protocol";
-import { makeServer, type FakeServer } from "./fake";
+import { makeClient, makeServer, type FakeServer } from "./fake";
 
 const tick = (ms: number) => vi.advanceTimersByTimeAsync(ms);
 const ink = (s: FakeServer, p = s.henry) => p.rows.filter((r) => r.name.startsWith("kresby:inkoust"));
@@ -344,6 +344,64 @@ describe("perzistence, most a správa", () => {
     const slot = s.hans.last(EV.deska).slots[0];
     expect(slot).toMatchObject({ t: "Erb", a: "Jindřich ze Skalice" });
     expect(notes.some(([id, t]) => id === 1 && t.includes("visí"))).toBe(true);
+  });
+
+  it("most naběhne po kresbách a restartuje se za běhu: desky z jeho úložiště, posluchači net a předměty znovu", async () => {
+    const kv = new Map<string, any>();
+    const mostApi = (regs: string[]) => ({
+      info: () => ({ contract: 1, version: "1.0.0", adapter: "test", overrides: {} }),
+      perms: { has: async (id: number, perm: string) => id === 1 && perm === "admin" },
+      storage: {
+        get: (k: string) => (kv.has(k) ? JSON.parse(kv.get(k)) : undefined),
+        set: (k: string, v: any) => (kv.set(k, JSON.stringify(v)), true),
+        delete: (k: string) => kv.delete(k),
+        keys: (p: string) => [...kv.keys()].filter((k) => k.startsWith(p)).sort(),
+      },
+      inventory: { registerCustomItem: (d: any) => (regs.push(d.id), true) },
+    });
+    const netOf = (ons: string[]) => ({ on: (ev: string) => (ons.push(ev), () => {}), send: () => false });
+    // předchozí běh s mostem: v jeho úložišti je jedna tabule
+    const s1 = await server({ most: { api: mostApi([]) }, config: { admini: [] } });
+    await s1.cmd(s1.henry, "tabule 2 1 1");
+    await tick(2100);
+    expect([...kv.keys()].filter((k) => k.startsWith("kresby:deska/"))).toHaveLength(1);
+    await s1.stop();
+
+    // kresby naběhnou dřív než most (most není v resourceDependencies): záloha z configu, žádná deska
+    const s = await server({ config: { admini: [] } });
+    expect(s.logs.join("\n")).toContain("načteno 0 desek (úložiště: config)");
+    const regs: string[] = [];
+    const ons: string[] = [];
+    s.imports.most = { api: mostApi(regs), net: netOf(ons) };
+    void s.fire("resourceStart", "most");
+    await tick(300);
+    expect(s.logs.join("\n")).toContain("úložiště mostu připojeno, nastavení a desky načteny znovu");
+    expect(s.logs.join("\n")).toContain("načteno 1 desek (úložiště: most)");
+    expect(regs).toContain("kresby:kresba");
+    expect(ons.length).toBeGreaterThan(0);
+
+    // restart mostu za běhu: kresby jedou dál, u nového mostu se zaregistrují znovu, desky se nenačítají znovu
+    void s.fire("resourceStop", "most");
+    s.imports.most = null;
+    const regs2: string[] = [];
+    const ons2: string[] = [];
+    s.imports.most = { api: mostApi(regs2), net: netOf(ons2) };
+    void s.fire("resourceStart", "most");
+    await tick(300);
+    expect(regs2).toContain("kresby:kresba");
+    expect(ons2.sort()).toEqual([...ons].sort());
+    expect(s.logs.filter((l) => l.includes("desky načteny znovu"))).toHaveLength(1);
+  });
+
+  it("klient: most se restartuje (kresby ne), posluchači net se u nového zaregistrují, až jdou jeho exporty číst", async () => {
+    const c = makeClient(() => {});
+    const ons: string[] = [];
+    c.deliver("resourceStart", "most"); // exporty mostu ještě nejdou přečíst
+    await tick(100);
+    expect(ons).toEqual([]);
+    c.remote.most = { net: { on: (ev: string) => (ons.push(ev), () => {}), emitServer: () => {} } };
+    await tick(300);
+    expect(ons).toContain(EV.platno);
   });
 
   it("sprava: panel se zaregistruje, akce vypíší kresby poblíž, zabaví, vrátí a smažou", async () => {

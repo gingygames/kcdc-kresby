@@ -65,7 +65,7 @@ Resource: `package.json` (manifest `mafiahub`), `kresby_config.js`, `server.js`,
 
 Kresby si za běhu zakládají vedle sebe resource **`kresby-obrazy-0`, `-1`, …** (balíčky textur, bez skriptů; nemazat ručně) a po nové kresbě je přenačtou: na playgroundu samy přes jeho konzoli (`logs/playground.pid`), na jiném serveru přes hák `KRESBY_CONFIG.svet.reload(novych, zmenenych)` (`refresh` + `start` u nových, `restart` u změněných). Bez háku se nové textury ukážou po restartu serveru, do té doby visí čistý list. Viz [AGENTS.md](AGENTS.md).
 
-Doporučené: resource `most` (manifest: `resourceDependencies: [{ name: "most", optional: true }]`), který dodá úložiště, práva a identitu postav. Bez něj platí `kresby_config.js` a záloha shimu mostu: vývěsky se ukládají do `<server>/data/most-shim/kresby.json`, id postavy je `steam:<id>` (jinak `nick:<přezdívka malými>`) jako ve standalone mostu. Kresby v brašnách se neztratí, pokud framework ukládá inventáře. Volitelný je resource `sprava` s panelem Kresby. Závislost na něj v manifestu není, Správa si panel stáhne z exportu `spravaPanels`.
+Doporučené: resource `most` (v manifestu kreseb jako závislost není, aby se kresby nerestartovaly s ním; kresby se na něj napojí, i když naběhne později), který dodá úložiště, práva a identitu postav. Bez něj platí `kresby_config.js` a záloha shimu mostu: vývěsky se ukládají do `<server>/data/most-shim/kresby.json`, id postavy je `steam:<id>` (jinak `nick:<přezdívka malými>`) jako ve standalone mostu. Kresby v brašnách se neztratí, pokud framework ukládá inventáře. Volitelný je resource `sprava` s panelem Kresby. Závislost na něj v manifestu není, Správa si panel stáhne z exportu `spravaPanels`.
 
 ## API pro jiné resources (škola)
 

@@ -155,6 +155,16 @@
     };
   }
 
+  /** klávesa na zavřeném tlačítku výběru: ↓ ↑ Enter mezera otevřou seznam a dál nepokračují (stránka by je brala jako zkratky, tlačítko není INPUT/SELECT) */
+  function selectButtonKey(e, open) {
+    var k = e.key;
+    if (k !== "ArrowDown" && k !== "ArrowUp" && k !== "Enter" && k !== " ") return false;
+    e.preventDefault();
+    e.stopPropagation();
+    open();
+    return true;
+  }
+
   /** poloha tooltipu u kurzoru (x, y) pro rozměr w×h: pod a vpravo od kurzoru, u okraje se překlopí; vždy celý na obrazovce */
   function placeTip(x, y, w, h, vw, vh) {
     var left = x + 14, top = y + 20;
@@ -164,7 +174,8 @@
   }
 
   var api = { scaleFor: scaleFor, store: store, distance: distance, nearest: nearest, clampRect: clampRect, dragRect: dragRect, convertTitle: convertTitle, placeTip: placeTip,
-    titleActions: titleActions, isTabbable: isTabbable, selectFull: selectFull, selectMirror: selectMirror };
+    titleActions: titleActions, isTabbable: isTabbable, selectFull: selectFull, selectMirror: selectMirror,
+    selectButtonKey: selectButtonKey };
 
   if (typeof document === "undefined") {
     if (typeof module !== "undefined") module.exports = api;
@@ -598,7 +609,7 @@
     btn.addEventListener("click", function () { if (openSel && openSel.rec === rec) selectClose(); else selectOpen(rec); });
     btn.addEventListener("keydown", function (e) {
       if (openSel && openSel.rec === rec) return;
-      if (e.key === "ArrowDown" || e.key === "ArrowUp" || e.key === "Enter" || e.key === " ") { e.preventDefault(); selectOpen(rec); }
+      selectButtonKey(e, function () { selectOpen(rec); });
     });
   }
   /** uvolní select odebraný z dokumentu: observer, posluchač, přepsané vlastnosti, tlačítko; po návratu do dokumentu se vylepší znovu */
@@ -708,5 +719,7 @@
   }
   api.enhance = enhance;
   api.select = selectEnhance;
+  /** kam dát fokus: u vylepšeného selectu jeho viditelné tlačítko (nativní je skrytý), jinak prvek sám */
+  api.focusTarget = function (node) { var rec = node ? selectRec(node) : null; return rec ? rec.btn : node; };
   root.Kit = api;
 })(typeof window !== "undefined" ? window : globalThis);

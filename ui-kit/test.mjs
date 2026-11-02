@@ -190,3 +190,19 @@ test("selectMirror: popisek podle vybrané možnosti, skrytí, vypnutí, třídy
   sel.style.display = ""; sel.disabled = true; sel.selectedIndex = -1; sel.className = "";
   assert.deepEqual(Kit.selectMirror(sel, false), { label: "", disabled: true, hidden: false, visibility: "", tip: "Řazení", cls: "k-select" });
 });
+
+test("selectButtonKey: klávesa, která otevře seznam, nedojde k posluchačům stránky; ostatní projdou", () => {
+  const ev = (key) => ({ key, prevented: false, stopped: false, preventDefault() { this.prevented = true; }, stopPropagation() { this.stopped = true; } });
+  for (const key of ["ArrowDown", "ArrowUp", "Enter", " "]) {
+    let opened = 0;
+    const e = ev(key);
+    assert.equal(Kit.selectButtonKey(e, () => opened++), true);
+    assert.deepEqual([e.prevented, e.stopped, opened], [true, true, 1], key);
+  }
+  for (const key of ["q", "Escape", "Tab", "e"]) {
+    let opened = 0;
+    const e = ev(key);
+    assert.equal(Kit.selectButtonKey(e, () => opened++), false);
+    assert.deepEqual([e.prevented, e.stopped, opened], [false, false, 0], key);
+  }
+});

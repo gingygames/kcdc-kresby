@@ -79,27 +79,36 @@ function refreshLive(shard: string, ids: number[]) {
 Events.on("resourceStart", guard("start", async (name: unknown) => {
   if (name === RESOURCE) return boot();
   if (typeof name === "string" && started) assets.onResourceStart(name);
-  if (name === "most") net.mostStarted();
-  if (name === "most" || name === "sprava") {
+  if (name === "sprava") {
     const found = most.resolveBridges();
-    if (name === "sprava") {
-      if (found.sprava) most.registerPanel(panels()[0]);
-      if (!settings.push()) setTimeout(() => settings.push(), 1000); // exporty správy ještě nemusí být
-    }
-    // most přišel až po nás: desky načíst z jeho úložiště (do té doby byly jen v paměti)
-    if (name === "most" && started && loadedFrom === "pamet" && storage.kind() === "most") {
-      await load();
-      loadedFrom = storage.kind();
-      indexAll();
-      streamAll();
-      log("úložiště mostu připojeno, desky načteny znovu");
-    }
+    if (found.sprava) most.registerPanel(panels()[0]);
+    if (!settings.push()) setTimeout(() => settings.push(), 1000); // exporty správy ještě nemusí být
+  }
+}));
+
+// Most naběhl po kresbách nebo se vrátil po restartu (most není v resourceDependencies, kresby se s ním
+// nerestartují). Shim to ohlásí, až jdou exporty mostu číst a zápisy z výpadku jsou v jeho úložišti.
+most.onMostChange(guard("most", async (running: boolean) => {
+  most.resolveBridges();
+  if (!running || !started) return;
+  net.mostStarted(); // posluchači velkých zpráv u nového mostu (staré zanikly s ním)
+  const fromBackup = loadedFrom !== "most" && storage.kind() === "most";
+  if (fromBackup) await settings.load(); // nastavení i desky byly ze zálohy: teď z úložiště mostu
+  registerItems(); // registr vlastních předmětů mostu je jen v jeho paměti
+  if (fromBackup) {
+    destroyProps(); // stojany a listy desek ze zálohy pryč, indexAll postaví ty z mostu
+    sheets.destroyAll();
+    await load();
+    loadedFrom = storage.kind();
+    indexAll();
+    streamAll();
+    log("úložiště mostu připojeno, nastavení a desky načteny znovu");
   }
 }));
 
 Events.on("resourceStop", guard("stop", async (name: unknown) => {
   if (typeof name === "string") captionOwnerStopped(name);
-  if (name === "most" || name === "sprava") return void most.resolveBridges();
+  if (name === "sprava") return void most.resolveBridges();
   if (name !== RESOURCE) return;
   for (const t of timers) clearInterval(t);
   endAll();

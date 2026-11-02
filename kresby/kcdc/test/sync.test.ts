@@ -2,9 +2,10 @@
 // Vývěska, nabídka, kreslení myší na nativním plátně (Scaleform), potvrzování dávek, živý přenos divákovi,
 // dokončení a spotřeba materiálu, stažení dat na vyžádání, kresba ve světě (Gizmos), restart serveru.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { decode } from "../src/shared/codec";
+import { decode, encodeK3 } from "../src/shared/codec";
 import { EV } from "../src/shared/protocol";
 import { world, type Clip, type FakeClient, type FakeServer } from "./fake";
+import { sketch } from "./sketch";
 
 const tick = (ms: number) => vi.advanceTimersByTimeAsync(ms);
 
@@ -285,6 +286,28 @@ describe("kreslení od začátku do konce", () => {
     await tick(300);
     expect(s.hans.last(EV.deska).slots.find((x: any) => x?.h)).toMatchObject({ t: "Můj erb" });
     expect(opened.at(-1)).toBe("close");
+  });
+
+  it("divák naživo: konec relace a hned nová se stejným číslem - list se překreslí (podpis se neopakuje)", async () => {
+    const { s, c } = await setup();
+    const henry = c(s.henry);
+    const hans = c(s.hans);
+    await useBoard(s, henry);
+    await s.pick(s.henry, "Kreslit: Čistý pergamen");
+    await tick(400);
+    await drag(henry, line(100, 100, 600, 120));
+    await drag(henry, line(120, 300, 500, 420, 40));
+    await tick(600);
+    const first = s.hans.all(EV.zive)[0];
+    const ink = () => JSON.stringify([...hans.gizmos.entries()].filter(([k]) => k.startsWith("k")).map(([, g]) => g.prim));
+    const before = ink();
+    expect(before).not.toBe("[]");
+    // relace skončí a hned (bez snímku mezi tím) začne nová se stejným číslem a stejným počtem jiných tahů
+    const other = sketch(2, 7, 20);
+    hans.deliver(EV.zive, { b: first.b, slot: first.slot, s: first.s, end: true });
+    hans.deliver(EV.zive, { b: first.b, slot: first.slot, s: first.s, paper: 0, inks: first.inks, add: encodeK3({ ...other, inks: first.inks, paper: 0 }) });
+    await tick(600);
+    expect(ink()).not.toBe(before); // dřív reset znovu od 1: stejný podpis, zůstaly staré (i vzaté) tahy
   });
 
   it("plátno: zpět a znovu, zamčené inkousty s radou, stav ukládání, měřená latence", async () => {

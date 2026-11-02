@@ -85,6 +85,9 @@ describe("balíčky textur za běhu", { timeout: 90000 }, () => {
     await tick(10);
     const live = [ids[1], ids[2], ids[3], id5];
     expect(live.map(where)).toEqual(["kresby-obrazy-3", "kresby-obrazy-3", "kresby-obrazy-3", "kresby-obrazy-3"]);
+    // přejmenované soubory a stav v úložišti hned spolu (ne až za saveMs: pád mezitím by ukazoval na staré balíčky)
+    const of = JSON.parse(s.storage.get("kresby:obrazy")!).of;
+    expect(live.map((id) => of[id])).toEqual(["kresby-obrazy-3", "kresby-obrazy-3", "kresby-obrazy-3", "kresby-obrazy-3"]);
     expect(textures("kresby-obrazy-1")).toEqual([]);
     expect(textures("kresby-obrazy-2")).toEqual([]);
     expect(readdirSync(texDir("kresby-obrazy-3")).filter((f) => f.startsWith(`k${id5}.`)).sort()).toEqual([`k${id5}.dds`, `k${id5}.dds.1`, `k${id5}.dds.2`, `k${id5}.dds.3`, `k${id5}.dds.4`]);

@@ -56,8 +56,15 @@ export function emitServer(ev: string, msg: unknown) {
   for (const p of parts) Events.emitServer(PART_EV, p);
 }
 
-/** most (znovu) naběhl: zaregistrovat posluchače u něj */
-export function useMost() {
-  if (!mostNet()) return;
+/** most (znovu) naběhl: zaregistrovat posluchače u něj. Most není v závislostech kresby, a tak klient kreseb
+ *  při jeho restartu běží dál; exporty mostu jdou číst až chvíli po resourceStart, proto se to zkouší (nejvýš 10 s). */
+let retry: ReturnType<typeof setTimeout> | null = null;
+export function useMost(tries = 40) {
+  if (retry !== null) clearTimeout(retry);
+  retry = null;
+  if (!mostNet()) {
+    if (tries > 0) retry = setTimeout(() => useMost(tries - 1), 250);
+    return;
+  }
   for (const [ev, f] of handlers) mostOn(ev, f);
 }

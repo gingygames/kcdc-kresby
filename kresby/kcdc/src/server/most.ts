@@ -15,7 +15,10 @@
 // Předměty s vlastními daty (lahvička inkoustu s kapkami, kresba) čte a mění vždy nativní Inventory po řádcích
 // (updateCustom, remove podle id řádku) - kontrakt mostu řádky neupravuje. Viz AGENTS.md.
 
-import { configureMostFallback, hasMost as shimHasMost, most as mostApi } from "../../../../most/shim/most";
+import { configureMostFallback, hasMost as shimHasMost, most as mostApi, onMostChange } from "../../../../most/shim/most";
+
+/** most naběhl po kresbách / vrátil se po restartu (true, exporty už jdou číst), nebo se zastavil (false) */
+export { onMostChange };
 import { CFG, type Storage } from "./config";
 
 export interface MenuOption {

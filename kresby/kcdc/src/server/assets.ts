@@ -26,7 +26,7 @@ import { CFG } from "./config";
 import { writeDdsSteps, type DdsFiles } from "./dds";
 import { Budget, drainPool, release, renderSheet, resampleSteps } from "./raster";
 import { storage } from "./most";
-import { saveLater } from "./store";
+import { flush, saveLater } from "./store";
 
 declare const require: ((id: string) => any) | undefined;
 
@@ -174,7 +174,7 @@ export async function init(cb: { onLive: (shard: string, ids: number[]) => void;
   if (st.blankPend) blankGen = genOf(blankShard());
   await ensureBlanks();
   aktualizovatModely();
-  if (canReload() && countPlayers() === 0) compact();
+  if (canReload() && countPlayers() === 0) await compact();
   if (st.dirty.length) scheduleReload();
 }
 
@@ -390,7 +390,7 @@ export function pickShard(cold: boolean, c = counts()): string {
  * Start serveru bez hráčů: kresby z horkých balíčků do studených (díry po smazaných, pak nové). Textura se přesune,
  * model a materiál se zapíšou znovu (nesou cestu balíčku). Přenačtení bez hráčů nikoho nezdrží.
  */
-function compact() {
+async function compact() {
   const hot = st.hot ?? [];
   const f = node()!;
   const c = counts();
@@ -427,7 +427,9 @@ function compact() {
   }
   // horké balíčky jsou teď prázdné a slouží dál (prázdný balíček se přenačítá levně)
   stats.moved += moved;
+  // soubory už jsou přejmenované: st.of hned do úložiště (saveLater by po pádu před zápisem ukazoval na staré balíčky)
   save();
+  await flush();
   log(`balíčky textur: ${moved} kreseb z horkých balíčků přesunuto do studených (start bez hráčů)`);
 }
 

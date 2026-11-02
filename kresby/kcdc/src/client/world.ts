@@ -56,6 +56,8 @@ const waiting = new Set<string>(); // ve frontě na EV.chci
 // "deska:list" -> cizí kreslení naživo; reset se zvýší při zpět / nové relaci (pak se list kreslí znovu celý),
 // přidané tahy reset nemění (dokreslí se do dalších kreseb Gizmos, viz render)
 const live = new Map<string, { s: number; e: Entry; reset: number }>();
+/** reset roste přes všechny relace (i po konci a nové relaci): podpis se nesmí opakovat, jinak zůstane vzatý tah */
+let liveSeq = 0;
 let ownSlot = ""; // list, na který právě kreslím já (kreslí ho plátno)
 export const stats = { units: 0, ids: 0, sheets: 0, drawn: 0, plans: 0, planMs: 0, setMs: 0, requests: 0, appends: 0, rebuilds: 0 };
 
@@ -156,12 +158,12 @@ export function onLive(m: LiveMsg) {
   if (m.end) return void live.delete(k);
   let l = live.get(k);
   if (m.inks || !l || l.s !== m.s) {
-    l = { s: m.s, e: { d: { paper: m.paper ?? 0, inks: m.inks ?? [], strokes: [] }, bytes: 0, plans: new Map() }, reset: (l?.reset ?? 0) + 1 };
+    l = { s: m.s, e: { d: { paper: m.paper ?? 0, inks: m.inks ?? [], strokes: [] }, bytes: 0, plans: new Map() }, reset: ++liveSeq };
     live.set(k, l);
   }
   if (m.undo) {
     l.e.d.strokes.splice(Math.max(0, l.e.d.strokes.length - m.undo), m.undo);
-    l.reset++;
+    l.reset = ++liveSeq;
   }
   const add = m.add ? decode(m.add, MAX_INKS) : null;
   if (add) l.e.d.strokes.push(...add.strokes);
@@ -373,7 +375,8 @@ export function render() {
     const prev = shown.get(c.k);
     // živé kreslení: nové tahy se naplánují samy a dokreslí do dalších kreseb Gizmos; celý list se přestaví po zpět,
     // při změně LOD a nejvýš jednou za sekundu, když dokreslených kreseb Gizmos přibývá (spojí se zpátky)
-    const same = prev !== undefined && prev.sig === sigOf(c.h, prev.level, c.lk);
+    // a jen na úrovni, kterou chce vzdálenost: hrubší LOD vynucený dřív rozpočtem se tu jinak nikdy nezjemní
+    const same = prev !== undefined && prev.level === levelOf(c.lk) && prev.sig === sigOf(c.h, prev.level, c.lk);
     if (same && prev!.n === n && c.h.startsWith("live") && units + prev!.units <= cfg.gizmoUnits && ids + prev!.ids.length <= cfg.gizmoIds) {
       // živý list beze změny: plány celé kresby se po každé zprávě zahazují, tak je nepočítat znovu
       units += prev!.units;

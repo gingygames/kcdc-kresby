@@ -12,8 +12,8 @@ klient kresby ── události kresby:* (src/shared/protocol.ts) ── server k
      └─ setUi(...) – vlastní UI frameworku                            └─► sprava (export spravaPanels / registerPanel)
 ```
 
-- **Všechno, co závisí na frameworku, je v `src/server/most.ts`.** Ostatní soubory volají jen jeho funkce. Napojení se čte při každém volání přes shim mostu (`most/shim/most.ts`, esbuild ho přibalí), po restartu mostu se tedy použije nový objekt.
-- Manifest: `resourceDependencies: [{ name: "most", optional: true }]`. **Na `sprava` závislost nedávejte**: Správa si panel stáhne sama z exportu `spravaPanels`. Cyklus závislostí umí KCDC 1.7.1 za běhu shodit (přetečení zásobníku při `restart`).
+- **Všechno, co závisí na frameworku, je v `src/server/most.ts`.** Ostatní soubory volají jen jeho funkce. Napojení jde přes shim mostu (`most/shim/most.ts`, esbuild ho přibalí): API drží, dokud most běží, na `resourceStop` mostu ho zahodí a po jeho restartu použije nový objekt.
+- Manifest: `resourceDependencies: []`, most v závislostech **není**: KCDC restartuje se závislostí i všechny, které na ní (i nepovinně) závisejí, a `restart most` by restartoval i tenhle modul. Most při bootu startuje první (`priority: -100` v jeho manifestu). Když most naběhne po kresbách nebo se restartuje, shim to ohlásí (`onMostChange`, až jdou exporty číst) a kresby u něj znovu zaregistrují posluchače `net` a vlastní předměty. Desky a nastavení načtené ze zálohy (most ještě neběžel) načtou znovu z jeho úložiště. Klient po startu mostu zaregistruje posluchače `net` znovu. **Na `sprava` závislost nedávejte**: Správa si panel stáhne sama z exportu `spravaPanels`. Cyklus závislostí umí KCDC 1.7.1 za běhu shodit (přetečení zásobníku při `restart`).
 - Resource se musí jmenovat `kresby`: HTML záloha je na `fw://resources/kresby/ui/platno.html` a klíče úložiště začínají `kresby:`.
 
 ## 2. Co modul od mostu chce (a co dělá bez něj)
@@ -108,7 +108,7 @@ Všechny zprávy jdou přes `src/server/net.ts` (`sendTo`, `onClient`) a `src/cl
 ## 7. Jak testovat
 
 ```sh
-cd kresby/kcdc && npm install && npm test        # build + 61 testů, ~1 min
+cd kresby/kcdc && npm install && npm test        # build + 64 testů (1 přeskočený), ~1 min
 npm run perf                                     # jen výkonové testy s čísly
 powershell -ExecutionPolicy Bypass -File playground\nasadit.ps1 -Jen kresby   # playground: jednou, pak log
 ```

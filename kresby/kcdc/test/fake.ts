@@ -472,6 +472,7 @@ export function makeClient(send: (name: string, payload: unknown) => void, opts:
   const keys = new Map<string, Fn>();
   const logs: string[] = [];
   const exportsReg = new Map<string, unknown>();
+  const remote: Record<string, Record<string, any> | null> = {};
   let hintSeq = 0;
   const controls = { off: 0 };
   const assets = new Set<string>(); // streamované soubory, které klient má
@@ -573,7 +574,14 @@ export function makeClient(send: (name: string, payload: unknown) => void, opts:
     Controls: { showCursor: () => void (cursorHolds.n++), hideCursor: () => void (cursorHolds.n--), disable: () => void (controls.off++), enable: () => void (controls.off--) },
     Assets: { has: (path: string) => assets.has(path) },
     Book: { open: (o: any) => (books.push(o), 1), getOpenBook: () => null, getLastError: () => "" },
-    Exports: { register: (n: string, f: unknown) => (exportsReg.set(n, f), true) },
+    Exports: {
+      register: (n: string, f: unknown) => (exportsReg.set(n, f), true),
+      // exporty jiných klientských resource (most: net); chybějící resource hází jako KCDC
+      get: (r: string, n: string) => {
+        if (!remote[r]) throw new Error("resource " + r + " is not running");
+        return remote[r]![n];
+      },
+    },
     Vector3: Vec,
     console: { log: (t: string) => void logs.push(String(t)) },
     setTimeout, clearTimeout, setInterval, clearInterval, Date, JSON, Math, Promise,
@@ -593,6 +601,7 @@ export function makeClient(send: (name: string, payload: unknown) => void, opts:
     keys,
     logs,
     exportsReg,
+    remote,
     pose,
     ray,
     deliver: (name: string, payload: unknown) => (on.get(name) ?? []).forEach((f) => f(payload)),

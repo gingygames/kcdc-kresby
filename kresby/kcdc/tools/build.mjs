@@ -44,9 +44,11 @@ const manifest = {
     serverScripts: ["kresby_config.js", "server.js"],
     clientScripts: ["client.js"],
     files: ["ui/**"],
-    // most startuje dřív, když běží; bez něj platí záloha (shim). Na sprava závislost NENÍ (sprava si panely
-    // stáhne sama přes export spravaPanels; cyklus závislostí umí KCDC 1.7.1 položit).
-    resourceDependencies: [{ name: "most", optional: true }],
+    // Bez závislostí. Most tu není: KCDC restartuje se závislostí i všechny, které na ní (i nepovinně) závisejí,
+    // a restart mostu by restartoval i kresby. Most při bootu startuje první (priority v jeho manifestu), kresby se
+    // na něj napojí i později (onMostChange), bez něj platí záloha (shim). Na sprava závislost NENÍ (sprava si
+    // panely stáhne sama přes export spravaPanels; cyklus závislostí umí KCDC 1.7.1 položit).
+    resourceDependencies: [],
     exports: ["isBusy", "giveMaterial", "spravaPanels", "spravaSettings", "setUi", "isDrawing", "stats",
       "boardCreate", "boardRemove", "boardDraw", "boardPut", "boardClear", "boardGet", "boardInfo", "paperCode", "stopDrawing",
       "drawingPrepare", "boardShow", "drawingReady", "drawingDelete", "boardBake", "setCaptionFilter"],
