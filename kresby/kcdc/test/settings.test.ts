@@ -18,7 +18,7 @@ async function server(opts: Parameters<typeof makeServer>[0] = {}) {
   return { s, def };
 }
 
-const save = (s: FakeServer, def: Def, v: any) => def.set(v, { caller: s.henry, previous: def.get() });
+const save = (s: FakeServer, def: Def, v: any) => def.set(v, { caller: s.ref(s.henry), previous: def.get() }); // Správa posílá jen { id, nickname }
 
 describe("nastavení ve správě", () => {
   let dir = "";

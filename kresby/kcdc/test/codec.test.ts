@@ -11,15 +11,27 @@ import { sketch } from "./sketch";
 const lua = (req: object) =>
   JSON.parse(execFileSync("python", ["-I", join(import.meta.dirname, "..", "tools", "lua_k2.py")], { input: JSON.stringify(req), encoding: "utf8" }));
 
+/** Python 3 s balíkem lupa (pip install lupa): bez něj se kompatibilita s KCD:MP přeskočí, ostatní testy běží */
+const hasLupa = (() => {
+  try {
+    execFileSync("python", ["-I", "-c", "import lupa"], { stdio: "ignore", timeout: 20000 });
+    return true;
+  } catch {
+    return false;
+  }
+})();
+
 describe("kodek", () => {
-  it("k2 je bajt po bajtu stejný jako v KCD:MP a Lua ho přečte", () => {
-    const d = sketch(40, 1);
-    const k2 = encodeK2(d);
-    expect(lua({ encode: d }).k2).toBe(k2);
-    const back = lua({ decode: k2 }).drawing;
-    expect(back.strokes.length).toBe(d.strokes.length);
-    expect(back.strokes[7].p).toEqual(d.strokes[7].p);
-    expect(decode(k2)).toEqual(d);
+  describe.skipIf(!hasLupa)("kompatibilita s KCD:MP (python + lupa)", () => {
+    it("k2 je bajt po bajtu stejný jako v KCD:MP a Lua ho přečte", () => {
+      const d = sketch(40, 1);
+      const k2 = encodeK2(d);
+      expect(lua({ encode: d }).k2).toBe(k2);
+      const back = lua({ decode: k2 }).drawing;
+      expect(back.strokes.length).toBe(d.strokes.length);
+      expect(back.strokes[7].p).toEqual(d.strokes[7].p);
+      expect(decode(k2)).toEqual(d);
+    });
   });
 
   it("k3 dekóduje totéž a je menší než k2", () => {

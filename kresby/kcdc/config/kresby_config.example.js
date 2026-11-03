@@ -16,6 +16,9 @@ globalThis.KRESBY_CONFIG = {
   // Kresby ve světě jako textura na listu (osvětlené, se stíny). Nové kresby žijí v resource kresby-obrazy-N, které
   // je po nové kresbě potřeba přenačíst: na playgroundu to kresby udělají samy, jinde doplňte hák (AGENTS.md, 2b):
   // svet: { reload: (novych, zmenenych) => { /* refresh + start <novych>, restart <zmenenych> v konzoli serveru */ } },
+  // svet.konzole (výchozí true) má smysl jen na playgroundu gingy-kcdc (přenačtení přes jeho konzoli, hledá
+  // logs/playground.pid). Na jiném serveru ho vypněte, přenačtení pak obstará jen hák svet.reload (nebo restart):
+  // svet: { konzole: false },
   // Většinu nastavení jde měnit za běhu ve správě (F10 → Nastavení → Kresby, /kresby nastaveni).
   klient: {
     // kreslicí plátno: "auto" (Scaleform, když nejde, HTML), "nativni", "web"

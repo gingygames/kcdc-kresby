@@ -15,6 +15,7 @@ klient kresby ── události kresby:* (src/shared/protocol.ts) ── server k
 - **Všechno, co závisí na frameworku, je v `src/server/most.ts`.** Ostatní soubory volají jen jeho funkce. Napojení jde přes shim mostu (`most/shim/most.ts`, esbuild ho přibalí): API drží, dokud most běží, na `resourceStop` mostu ho zahodí a po jeho restartu použije nový objekt.
 - Manifest: `resourceDependencies: []`, most v závislostech **není**: KCDC restartuje se závislostí i všechny, které na ní (i nepovinně) závisejí, a `restart most` by restartoval i tenhle modul. Most při bootu startuje první (`priority: -100` v jeho manifestu). Když most naběhne po kresbách nebo se restartuje, shim to ohlásí (`onMostChange`, až jdou exporty číst) a kresby u něj znovu zaregistrují posluchače `net` a vlastní předměty. Desky a nastavení načtené ze zálohy (most ještě neběžel) načtou znovu z jeho úložiště. Klient po startu mostu zaregistruje posluchače `net` znovu. **Na `sprava` závislost nedávejte**: Správa si panel stáhne sama z exportu `spravaPanels`. Cyklus závislostí umí KCDC 1.7.1 za běhu shodit (přetečení zásobníku při `restart`).
 - Resource se musí jmenovat `kresby`: HTML záloha je na `fw://resources/kresby/ui/platno.html` a klíče úložiště začínají `kresby:`.
+- **Správa posílá hráče jen jako `{ id, nickname }`** (`caller` i parametry typu `player` v handlerech panelu, `caller` v hoocích nastavení; `sprava/src/panel-types.ts` `PlayerRef`, od KCDC 1.7.3 má každý resource vlastní runtime a nativní `Player` by přes `Exports` dorazil prázdný). `src/server/admin.ts` si hráče bere přes `Player.getById(ref.id)` (`livePlayer`) a když už není ve hře, vrátí `{ ok: false, message }`. `resourceStart` Správy přijde, když je ještě Loading (`Exports.get` hází): `main.ts` registraci panelu i nastavení opakuje časovačem (250 ms, nejvýš 20 s, `attachSpravaLater`), na `resourceStop` Správy časovač zruší.
 
 ## 2. Co modul od mostu chce (a co dělá bez něj)
 
@@ -104,11 +105,12 @@ Všechny zprávy jdou přes `src/server/net.ts` (`sendTo`, `onClient`) a `src/cl
 | `giveMaterial(playerId, co, arg?)` | server | jako `/kresby dat` (`pergamen`, `papir`, `kniha`, `nastroje`, `sada`, `inkoust <recept>`), např. pro startovní výbavu |
 | `spravaPanels()` | server | panel `kresby` pro Správu (akce `okoli`, `skryt`, `obnovit`, `smazat`, `nahled`, `dat`, `postavit`, `desky`, `smazatDesku`, `stav`) |
 | `setUi(ui)`, `isDrawing()`, `stats()` | klient | vlastní UI, kreslí hráč?, čísla vykreslení (úseky, kreseb Gizmos, listy) |
+| `boardCreate`, `boardRemove`, `boardDraw`, `boardPut`, `boardClear`, `boardGet`, `boardInfo`, `paperCode`, `stopDrawing`, `drawingPrepare`, `boardShow`, `drawingReady`, `drawingDelete`, `boardBake` | server | API desek a kreslení pro jiné resources (`src/server/api.ts`, tabulka v README). **Chyby se vracejí jako text:** export nikdy nevyhodí, synchronní vrátí `String(e)`, asynchronní (`boardDraw`, `boardShow`, `drawingDelete`, `boardGet`) vrátí promise, který se místo odmítnutí vyřeší na `String(e)`; volající tedy kontroluje `typeof r === "string"` |
 
 ## 7. Jak testovat
 
 ```sh
-cd kresby/kcdc && npm install && npm test        # build + 64 testů (1 přeskočený), ~1 min
+cd kresby/kcdc && npm install && npm test        # build + 66 testů (1 přeskočený), ~1 min; bez Pythonu s lupa se přeskočí i kompatibilita k2
 npm run perf                                     # jen výkonové testy s čísly
 powershell -ExecutionPolicy Bypass -File playground\nasadit.ps1 -Jen kresby   # playground: jednou, pak log
 ```

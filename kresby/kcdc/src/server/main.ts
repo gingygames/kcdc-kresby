@@ -29,6 +29,24 @@ const RESOURCE = "kresby";
 let started = false;
 let loadedFrom = "";
 const timers: ReturnType<typeof setInterval>[] = [];
+let spravaRetry: ReturnType<typeof setTimeout> | null = null;
+
+/** panel a nastavení do správy; false = správa ještě neběží (Exports.get hází „is not running“) nebo exporty nemá */
+function attachSprava(): boolean {
+  const found = most.resolveBridges();
+  if (!found.sprava) return false;
+  most.registerPanel(panels()[0]);
+  return settings.push();
+}
+
+/** resourceStart správy přijde, když je ještě ve stavu Loading: opakovat časovačem (recept sprava/AGENTS.md, oddíl 1) */
+function attachSpravaLater(tries = 80) {
+  if (spravaRetry !== null) clearTimeout(spravaRetry);
+  spravaRetry = setTimeout(() => {
+    spravaRetry = null;
+    if (!attachSprava() && tries > 0) attachSpravaLater(tries - 1);
+  }, 250);
+}
 
 function guard<A extends any[]>(name: string, f: (...a: A) => unknown): (...a: any[]) => void {
   return (...a: any[]) => {
@@ -79,11 +97,7 @@ function refreshLive(shard: string, ids: number[]) {
 Events.on("resourceStart", guard("start", async (name: unknown) => {
   if (name === RESOURCE) return boot();
   if (typeof name === "string" && started) assets.onResourceStart(name);
-  if (name === "sprava") {
-    const found = most.resolveBridges();
-    if (found.sprava) most.registerPanel(panels()[0]);
-    if (!settings.push()) setTimeout(() => settings.push(), 1000); // exporty správy ještě nemusí být
-  }
+  if (name === "sprava" && !attachSprava()) attachSpravaLater(); // správa je ještě Loading: exporty za chvíli
 }));
 
 // Most naběhl po kresbách nebo se vrátil po restartu (most není v resourceDependencies, kresby se s ním
@@ -108,9 +122,15 @@ most.onMostChange(guard("most", async (running: boolean) => {
 
 Events.on("resourceStop", guard("stop", async (name: unknown) => {
   if (typeof name === "string") captionOwnerStopped(name);
-  if (name === "sprava") return void most.resolveBridges();
+  if (name === "sprava") {
+    if (spravaRetry !== null) clearTimeout(spravaRetry);
+    spravaRetry = null;
+    return void most.resolveBridges();
+  }
   if (name !== RESOURCE) return;
   for (const t of timers) clearInterval(t);
+  if (spravaRetry !== null) clearTimeout(spravaRetry);
+  spravaRetry = null;
   endAll();
   destroyProps();
   sheets.destroyAll();

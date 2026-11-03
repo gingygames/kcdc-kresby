@@ -5,7 +5,7 @@ Resource `kresby` pro servery [Kingdoms Connected](https://kingdomsconnected.com
 - Ostatní poblíž vidí kreslení naživo.
 - Hotová kresba visí na vývěsce, kde ji vidí všichni, nebo jde do brašny jako předmět. Ten jde prohlédnout, připíchnout jinam i prodat.
 
-**Stav (27. 10. 2026):** ověřené v simulaci (46 testů nad falešným API KCDC). Na playground serveru (KCDC 1.7.2) běží: balíčky textur `kresby-obrazy-0` a `-1` se zabalí a spustí a server postaví list s texturou kresby jako `Prop` (`/kresby info`: „listů ve světě 1, nepostavených 0“). **Ve hře s klientem zatím nikdo neověřil, jak list vypadá.** Náhled renderu (simulace osvětlení, ne snímek ze hry): [docs/nahled-svet.png](docs/nahled-svet.png). Integrační body pro cizí server a framework: [AGENTS.md](AGENTS.md).
+**Stav (3. 11. 2026):** ověřené v simulaci (66 testů nad falešným API KCDC, 1 přeskočený bez Pythonu). Na playground serveru (KCDC 1.7.3) běží: balíčky textur `kresby-obrazy-0` a `-1` se zabalí a spustí a server postaví list s texturou kresby jako `Prop` (`/kresby info`: „listů ve světě 1, nepostavených 0“). Od 1. 11. jdou nové kresby do malého horkého balíčku a po startu bez hráčů se přelévají do studených (viz Výkon); balíček, který nastartuje dřív, než kresby dočtou stav z úložiště, počká (3. 11.). **Ve hře s klientem zatím nikdo neověřil, jak list vypadá.** Náhled renderu (simulace osvětlení, ne snímek ze hry): [docs/nahled-svet.png](docs/nahled-svet.png). Integrační body pro cizí server a framework: [AGENTS.md](AGENTS.md).
 
 ![Kresba na vývěsce z 1, 3 a 8 m (simulace)](docs/nahled-svet.png)
 
@@ -56,7 +56,7 @@ Potřebuje Node 24+. Na test kompatibility s KCD:MP navíc Python 3 s `lupa`.
 cd kresby/kcdc
 npm install
 npm run build                                        # dist/kresby/
-npm test                                             # build + 61 testů (kodek, synchronizace, server, textury a balíčky, nastavení, výkon)
+npm test                                             # build + 66 testů (kodek, synchronizace, server, textury a balíčky, nastavení, výkon); bez Pythonu s lupa se 1 přeskočí
 npm run perf                                         # jen výkonové testy s čísly (test/perf.test.ts)
 node node_modules/esbuild/bin/esbuild tools/nahled.ts --bundle --platform=node --outfile=dist/nahled.cjs && node dist/nahled.cjs   # náhled renderu -> docs/nahled-svet.png
 node tools/build.mjs --out <server KCDC>/resources/kresby   # nasazení (kresby_config.js se nepřepisuje)
@@ -69,7 +69,7 @@ Doporučené: resource `most` (v manifestu kreseb jako závislost není, aby se 
 
 ## API pro jiné resources (škola)
 
-`src/server/api.ts`, exporty v manifestu. Desky s vlastníkem (`owner`) nejdou použít přes nabídku kreseb (nic se z nich nestrhne, nekreslí se na ně bez relace vlastníka). Hotová kresba visí na listu a upeče se do textury jako každá jiná.
+`src/server/api.ts`, exporty v manifestu. Chyba (výjimka, i u asynchronních exportů odmítnutý promise) se volajícímu vrací jako text, export nikdy nevyhodí. Desky s vlastníkem (`owner`) nejdou použít přes nabídku kreseb (nic se z nich nestrhne, nekreslí se na ně bez relace vlastníka). Hotová kresba visí na listu a upeče se do textury jako každá jiná.
 
 | Export | Co |
 |---|---|
@@ -124,7 +124,7 @@ Stejné akce jsou i v panelu **Kresby** ve správě: kresby poblíž s tlačítk
 4. „Prohlédnout“ na desce: kamera plynule přelétne na list (0,7 s), Esc nebo pohyb plynule zpět, postava se během přeletu nehne. Dokud se textura načítá, ukáže se kresba přes list s hláškou „načítá se“. Z brašny: inventář se zavře a ukáže se kresba (Esc / Enter zavře až po 0,6 s).
 5. F10 → Nastavení → Kresby: přidat inkoust (barva, suroviny), uložit, `/kresby dat <já> inkoust <id>`; přidat druh listu; přesunout vývěsku přes „Vzít moji pozici a směr“.
 6. Čitelnost z 1, 3 a 8 m proti náhledu ([docs/nahled-svet.png](docs/nahled-svet.png)), FPS u vývěsky s 6 kresbami.
-7. Plátno (snímky bez hry: `.snimky/pred-*.png` a `po-*.png`, `node tools/nahled-ui.mjs [předpona]`):
+7. Plátno (snímky bez hry: `.snimky/pred-*.png` a `po-*.png`, `node tools/nahled-ui.mjs [předpona]`; složka `.snimky/` je jen místní, ve veřejném zrcadle není):
    - nástroj jedním klikem nebo klávesou 1–4; nástroj, který hráč nemá, je zašedlý a řekne proč;
    - inkousty: všechny vidět, zamčené šrafované se zámečkem, klik řekne, kde je sehnat; Q / E přepíná;
    - náhled stopy v panelu odpovídá velikosti na listu; kolečko nebo ↑ / ↓ mění velikost;

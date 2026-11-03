@@ -282,6 +282,7 @@ Events.on("resourceStart", safe("start", (name: string) => name === "most" && us
 Events.on("resourceStop", safe("stop", (name: string) => {
   captionOwnerStopped(name);
   if (name !== "kresby") return;
+  stopReading(); // kamera na listu a infotext na 600 s by jinak zastavení resource přežily
   for (const t of timers) clearInterval(t);
   closeCanvas(true);
   viewer?.close();

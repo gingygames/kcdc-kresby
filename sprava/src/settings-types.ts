@@ -308,8 +308,15 @@ export interface SettingsError {
   message: string;
 }
 
-export interface SettingsCtx<P = unknown> {
-  /** Admin, který nastavení otevřel / ukládá. */
+/** Admin v hoocích modulu: jen `{ id, nickname }`. Každý resource má vlastní runtime a přes Exports jde kopie bez prototypu
+ * (nativní `Player` by dorazil prázdný); celého hráče si modul vezme přes `Player.getById(caller.id)`. */
+export interface SettingsCaller {
+  id: number;
+  nickname: string;
+}
+
+export interface SettingsCtx<P = SettingsCaller> {
+  /** Admin, který nastavení otevřel / ukládá: `{ id, nickname }` (viz SettingsCaller). */
   caller: P;
 }
 

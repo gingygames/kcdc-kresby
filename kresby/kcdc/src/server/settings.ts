@@ -8,6 +8,7 @@
 // Uloženo v most.storage pod "kresby:nastaveni" (vývěsky ne - ty mají vlastní záznamy kresby:deska/<id>).
 // Výchozí stav = kresby_config.js (KRESBY_CONFIG) nad výchozími hodnotami (config.ts). "Obnovit výchozí" smaže uložené.
 
+import type { PlayerRef } from "../../../../sprava/src/panel-types";
 import type { SettingsDef, SettingsField, SettingsObject, SettingsSetResult } from "../../../../sprava/src/settings-types";
 import { normalFromYaw, type V3 } from "../shared/layout";
 import { DEFAULT_LOOK, LOOK, SYSTEM_PAPERS, setLook, type PaperDef, type RGB } from "../shared/look";
@@ -440,7 +441,8 @@ export async function load() {
   }
 }
 
-async function set(v: SettingsObject, caller: Player | null): Promise<SettingsSetResult> {
+/** caller je od revize 1.7.3 jen { id, nickname } (sprava/AGENTS.md 2b); hráče by dal Player.getById(caller.id) */
+async function set(v: SettingsObject, caller: PlayerRef | null): Promise<SettingsSetResult> {
   const errors = check(v);
   if (errors.length) return { ok: false, message: "Nastavení má chyby.", errors };
   apply(v);
@@ -750,7 +752,7 @@ function schema(): SettingsField[] {
   ];
 }
 
-export function def(): SettingsDef<Player> {
+export function def(): SettingsDef<PlayerRef> {
   return {
     id: "kresby",
     title: "Kresby: inkousty, materiály, nástroje, vývěsky",

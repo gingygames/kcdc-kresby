@@ -4,6 +4,7 @@
 // když resource kresby nastartuje) a Exports.get("sprava", "registerPanel")(def, "kresby"), když sprava už běží.
 // Bez sprava zůstanou příkazy.
 
+import type { PlayerRef } from "../../../../sprava/src/panel-types";
 import * as assets from "./assets";
 import * as sheets from "./props";
 import * as settings from "./settings";
@@ -18,6 +19,14 @@ import { activeSessions } from "./sessions";
 import { boards, getDrawing, stats, type BoardRec } from "./store";
 
 const say = (p: Player, t: string) => Chat.sendToPlayer(p, t);
+
+/**
+ * Správa posílá handlerům panelu jen { id, nickname } (od KCDC 1.7.3 má každý resource vlastní runtime a nativní Player
+ * by přes Exports dorazil jako prázdná kopie bez prototypu): hráče s polohou a brašnou si bereme přes Player.getById.
+ */
+const livePlayer = (ref: PlayerRef | null | undefined): Player | null => (ref && Number.isInteger(ref.id) ? Player.getById(ref.id) : null);
+const GONE = (ref: PlayerRef | null | undefined, who = "Hráč") => ({ ok: false, message: `${who} ${ref?.nickname ? "„" + ref.nickname + "“ " : ""}už není ve hře.` });
+type Ctx = { caller: PlayerRef; params: Record<string, any> };
 
 function findPlayer(q: string | undefined): Player | null {
   if (!q) return null;
@@ -157,12 +166,14 @@ export function panels() {
           autorun: true,
           submit: "Obnovit",
           params: [{ name: "dosah", label: "Dosah (m)", type: "number", default: 60, min: 5, max: 2000 }],
-          handler: ({ caller, params }: { caller: Player; params: Record<string, any> }) => {
+          handler: ({ caller, params }: Ctx) => {
+            const me = livePlayer(caller);
+            if (!me) return GONE(caller, "Správce");
             const rows: Record<string, string | number | boolean>[] = [];
-            for (const b of near(caller.position, Number(params.dosah) || 60)) {
+            for (const b of near(me.position, Number(params.dosah) || 60)) {
               b.slots.forEach((s, i) => {
                 if (!s) return;
-                rows.push({ _id: s.d, _skryta: !!s.hid, id: s.d, deska: `${b.kind} ${b.id}`, list: i + 1, nazev: s.t, autor: s.a || "(nepodepsáno)", stav: s.hid ? "zabavená" : "visí", m: Math.round(dist(b, caller.position)) });
+                rows.push({ _id: s.d, _skryta: !!s.hid, id: s.d, deska: `${b.kind} ${b.id}`, list: i + 1, nazev: s.t, autor: s.a || "(nepodepsáno)", stav: s.hid ? "zabavená" : "visí", m: Math.round(dist(b, me.position)) });
               });
             }
             return {
@@ -183,13 +194,13 @@ export function panels() {
           id: "skryt",
           label: "Zabavit kresbu",
           params: [{ name: "id", label: "Číslo kresby", type: "number", integer: true, min: 1 }],
-          handler: async ({ params }: { params: Record<string, any> }) => ((await setHidden(Number(params.id), true)) ? `Kresba ${params.id} zabavena.` : { ok: false, message: "Taková kresba není." }),
+          handler: async ({ params }: Ctx) => ((await setHidden(Number(params.id), true)) ? `Kresba ${params.id} zabavena.` : { ok: false, message: "Taková kresba není." }),
         },
         {
           id: "obnovit",
           label: "Vrátit zabavenou",
           params: [{ name: "id", label: "Číslo kresby", type: "number", integer: true, min: 1 }],
-          handler: async ({ params }: { params: Record<string, any> }) => ((await setHidden(Number(params.id), false)) ? `Kresba ${params.id} vrácena.` : { ok: false, message: "Taková kresba není." }),
+          handler: async ({ params }: Ctx) => ((await setHidden(Number(params.id), false)) ? `Kresba ${params.id} vrácena.` : { ok: false, message: "Taková kresba není." }),
         },
         {
           id: "smazat",
@@ -197,16 +208,18 @@ export function panels() {
           danger: true,
           confirm: "Kresbu smazat natrvalo?",
           params: [{ name: "id", label: "Číslo kresby", type: "number", integer: true, min: 1 }],
-          handler: async ({ params }: { params: Record<string, any> }) => ((await removeDrawing(Number(params.id))) ? `Kresba ${params.id} smazána.` : { ok: false, message: "Taková kresba není." }),
+          handler: async ({ params }: Ctx) => ((await removeDrawing(Number(params.id))) ? `Kresba ${params.id} smazána.` : { ok: false, message: "Taková kresba není." }),
         },
         {
           id: "nahled",
           label: "Prohlédnout kresbu",
           params: [{ name: "id", label: "Číslo kresby", type: "number", integer: true, min: 1 }],
-          handler: async ({ caller, params }: { caller: Player; params: Record<string, any> }) => {
+          handler: async ({ caller, params }: Ctx) => {
             const r = await getDrawing(Number(params.id));
             if (!r) return { ok: false, message: "Taková kresba není." };
-            sendTo(caller, EV.prohlizet, { title: r.t, author: r.s ? r.a : "", h: r.h, d: r.d, paper: r.p });
+            const me = livePlayer(caller);
+            if (!me) return GONE(caller, "Správce");
+            sendTo(me, EV.prohlizet, { title: r.t, author: r.s ? r.a : "", h: r.h, d: r.d, paper: r.p });
             return { message: `„${r.t}“ od ${r.a} (${r.n} bodů)`, close: true };
           },
         },
@@ -219,9 +232,11 @@ export function panels() {
             { name: "co", label: "Co", type: "select", options: WHAT, default: "sada" },
             { name: "arg", label: "Počet / recept", required: false, placeholder: "3 nebo modr" },
           ],
-          handler: async ({ params }: { params: Record<string, any> }) => {
+          handler: async ({ params }: Ctx) => {
             if (params.co === "inkoust" && params.arg && !recipeOf(String(params.arg)) && !Number(params.arg)) return { ok: false, message: "Recepty: " + CFG.recipes.map((r) => r.id).join(", ") };
-            return adminGive(params.player as Player, String(params.co), params.arg ? String(params.arg) : undefined);
+            const t = livePlayer(params.player as PlayerRef | null);
+            if (!t) return GONE(params.player as PlayerRef | null);
+            return adminGive(t, String(params.co), params.arg ? String(params.arg) : undefined);
           },
         },
         {
@@ -234,22 +249,29 @@ export function panels() {
             { name: "radky", label: "Řádky", type: "number", integer: true, default: 2, min: 1, max: 6 },
             { name: "sirka", label: "Šířka (m)", type: "number", default: 1.5, min: 0.3, max: 6, step: 0.05 },
           ],
-          handler: async ({ caller, params }: { caller: Player; params: Record<string, any> }) =>
-            buildBoard(caller, params.druh, params.sloupce, params.radky, params.druh === "stojan" ? Math.min(2, params.sirka) : params.sirka),
+          handler: async ({ caller, params }: Ctx) => {
+            const me = livePlayer(caller);
+            if (!me) return GONE(caller, "Správce");
+            return buildBoard(me, params.druh, params.sloupce, params.radky, params.druh === "stojan" ? Math.min(2, params.sirka) : params.sirka);
+          },
         },
         {
           id: "desky",
           label: "Desky poblíž",
           perm: "kresby.admin",
           params: [{ name: "dosah", label: "Dosah (m)", type: "number", default: 100, min: 5, max: 5000 }],
-          handler: ({ caller, params }: { caller: Player; params: Record<string, any> }) => ({
-            table: {
-              columns: [{ key: "id", label: "Deska", align: "right" }, { key: "druh", label: "Druh" }, { key: "listy", label: "Listy" }, { key: "m", label: "m", align: "right" }],
-              rows: near(caller.position, Number(params.dosah) || 100).map((b) => ({ _id: b.id, id: b.id, druh: b.kind, listy: `${b.slots.filter(Boolean).length}/${b.slots.length}`, m: Math.round(dist(b, caller.position)) })),
-              rowActions: [{ action: "smazatDesku", label: "Smazat", params: { id: "_id" }, confirm: "Desku smazat? Vystavené kresby zůstanou v úložišti.", danger: true }],
-              empty: "Poblíž žádná deska není.",
-            },
-          }),
+          handler: ({ caller, params }: Ctx) => {
+            const me = livePlayer(caller);
+            if (!me) return GONE(caller, "Správce");
+            return {
+              table: {
+                columns: [{ key: "id", label: "Deska", align: "right" }, { key: "druh", label: "Druh" }, { key: "listy", label: "Listy" }, { key: "m", label: "m", align: "right" }],
+                rows: near(me.position, Number(params.dosah) || 100).map((b) => ({ _id: b.id, id: b.id, druh: b.kind, listy: `${b.slots.filter(Boolean).length}/${b.slots.length}`, m: Math.round(dist(b, me.position)) })),
+                rowActions: [{ action: "smazatDesku", label: "Smazat", params: { id: "_id" }, confirm: "Desku smazat? Vystavené kresby zůstanou v úložišti.", danger: true }],
+                empty: "Poblíž žádná deska není.",
+              },
+            };
+          },
         },
         {
           id: "smazatDesku",
@@ -257,7 +279,7 @@ export function panels() {
           perm: "kresby.admin",
           danger: true,
           params: [{ name: "id", label: "Číslo desky", type: "number", integer: true, min: 1 }],
-          handler: ({ params }: { params: Record<string, any> }) => {
+          handler: ({ params }: Ctx) => {
             const b = boards.get(Number(params.id));
             if (!b) return { ok: false, message: "Taková deska není." };
             removeBoard(b);

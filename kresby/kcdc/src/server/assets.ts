@@ -114,6 +114,10 @@ let countPlayers: () => number = () => 0;
 const gen = new Map<string, number>(); // balíček -> generace posledního zápisu
 const wroteAt = new Map<number, number>(); // čekající kresba -> generace jejího balíčku po zápisu
 let blankGen = 0;
+// Balíčky startují hned po kresbách (abecedně, bez závislostí), zatímco init() ještě čeká na úložiště: jejich
+// resourceStart se odloží, jinak by se pracovalo s prázdným stavem a jeho odložený zápis by přepsal ten skutečný.
+let ready = false;
+const early: string[] = [];
 const sent = new Map<string, { gen: number; at: number }>(); // balíček -> odeslané přenačtení, na které čekáme
 const tries = new Map<string, number>(); // balíček -> kolikrát se přenačtení nepovedlo (odstup roste)
 
@@ -159,6 +163,8 @@ export async function init(cb: { onLive: (shard: string, ids: number[]) => void;
   enabled = CFG.svet.rezim !== "cary" && !!node();
   if (!enabled) {
     if (CFG.svet.rezim !== "cary") log("textury kreseb nejdou: serverový skript nemá fs (require). Kresby ve světě jsou jen ladicí čáry.");
+    ready = true;
+    early.length = 0;
     return;
   }
   const saved = (await storage.get(KEY)) as State | undefined;
@@ -176,6 +182,8 @@ export async function init(cb: { onLive: (shard: string, ids: number[]) => void;
   aktualizovatModely();
   if (canReload() && countPlayers() === 0) await compact();
   if (st.dirty.length) scheduleReload();
+  ready = true;
+  early.splice(0).forEach(onResourceStart); // balíčky, které nastartovaly během načítání stavu
 }
 
 /** modely a materiály hotových kreseb na aktuální verzi (levné: jen cgf, cgfm a mtl, textura se nepřekresluje) */
@@ -634,6 +642,10 @@ function viaConsole(novych: string[], zmenenych: string[]): Promise<boolean> {
 /** resourceStart: balíček běží se soubory zapsanými do odeslání přenačtení (nebo do teď, když start nebyl náš) */
 export function onResourceStart(name: string) {
   if (!name.startsWith(CFG.svet.predpona + "-")) return;
+  if (!ready) {
+    early.push(name);
+    return;
+  }
   created.delete(name);
   const s = sent.get(name);
   sent.delete(name);
@@ -659,6 +671,8 @@ export function onResourceStart(name: string) {
 /** pro testy */
 export function resetForTests() {
   st = emptyState();
+  ready = false;
+  early.length = 0;
   created.clear();
   queue.length = 0;
   gen.clear();

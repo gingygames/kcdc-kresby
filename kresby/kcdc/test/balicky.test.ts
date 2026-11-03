@@ -169,4 +169,39 @@ describe("balíčky textur za běhu", { timeout: 90000 }, () => {
     await tick(2000);
     expect(x("drawingReady")(e)).toBe(true);
   });
+
+  it("resourceStart balíčku dřív, než init kreseb dočte stav z úložiště, uložený stav nepřepíše prázdným", async () => {
+    const { s, x } = await boot();
+    const b = x("boardCreate")({ owner: "t", pos: [0, 2, 1.6], n: [0, -1, 0], w: 1.5 });
+    const id = x("boardPut")(b, 0, data(8), { owner: "t" });
+    await s.settle();
+    await untilReload(s);
+    await tick(2000);
+    expect(x("drawingReady")(id)).toBe(true);
+    await s.stop();
+    expect(JSON.parse(s.storage.get("kresby:obrazy")!).of[id]).toBe("kresby-obrazy-1");
+
+    // KCDC startuje resource abecedně bez závislostí: kresby-obrazy-1 hned po kresbách, zatímco boot() kreseb ještě
+    // čeká na nastavení a úložiště. Hráči připojení: horké balíčky se nepřelévají, stav se nemá co měnit.
+    const w2 = makeServer({ assetsDir: dir, storage: s.storage });
+    for (const r of s.running) w2.running.add(r);
+    void w2.start();
+    await w2.fire("resourceStart", "kresby-obrazy-1");
+    await tick(6000); // sloučený zápis stavu (saveMs) a balíček 0
+    const x2 = (n: string) => w2.exportsReg.get(n) as (...a: any[]) => any;
+    const saved = JSON.parse(w2.storage.get("kresby:obrazy")!);
+    expect(saved.of[id]).toBe("kresby-obrazy-1"); // dřív: odložený zápis prázdného stavu přepsal ten načtený
+    expect(saved.pend).toEqual([]);
+    expect(x2("drawingReady")(id)).toBe(true);
+    expect(w2.reloads.filter((r) => r.zmenenych.includes("kresby-obrazy-1") || r.novych.includes("kresby-obrazy-1"))).toEqual([]);
+    await w2.stop();
+
+    // třetí start nemá co péct: kresba zůstává v balíčku 1
+    const w3 = makeServer({ assetsDir: dir, storage: s.storage });
+    for (const r of s.running) w3.running.add(r);
+    await w3.start();
+    await tick(6000);
+    expect(where(id)).toBe("kresby-obrazy-1");
+    expect(JSON.parse(w3.storage.get("kresby:obrazy")!).of[id]).toBe("kresby-obrazy-1");
+  });
 });

@@ -283,6 +283,8 @@ export function makeServer(opts: { config?: object; storage?: Map<string, string
     fire,
     start: () => fire("resourceStart", "kresby"),
     stop: () => fire("resourceStop", "kresby"),
+    /** hráč, jak ho Správa posílá handlerům panelu a nastavení: jen { id, nickname }, kopie bez prototypu (jiný runtime) */
+    ref: (p: Player): { id: number; nickname: string } => JSON.parse(JSON.stringify({ id: p.id, nickname: p.nickname })),
     cmd: (p: Player, line: string) => fire("playerCommand", p, "kresby", line ? line.split(" ") : []),
     client: (name: string, p: Player, payload: unknown = {}) => {
       onClient.get(name)!(p, JSON.parse(JSON.stringify(payload)));

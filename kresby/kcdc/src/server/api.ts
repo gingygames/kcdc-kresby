@@ -254,13 +254,18 @@ export function registerApi() {
     boardCreate, boardRemove, boardDraw, boardPut, boardClear, boardGet, boardInfo, paperCode, stopDrawing,
     drawingPrepare, boardShow, drawingReady, drawingDelete, boardBake,
   };
+  // chyba se volajícímu vrací vždy jako text (ne výjimka ani odmítnutý promise), i u asynchronních exportů
+  const fail = (name: string, e: unknown) => {
+    log(`${name}: ${String(e)}`);
+    return String(e);
+  };
   for (const [name, fn] of Object.entries(api)) {
     Exports.register(name, (...a: any[]) => {
       try {
-        return fn(...a);
+        const r = fn(...a);
+        return r && typeof (r as Promise<unknown>).then === "function" ? (r as Promise<unknown>).catch((e) => fail(name, e)) : r;
       } catch (e) {
-        log(`${name}: ${String(e)}`);
-        return String(e);
+        return fail(name, e);
       }
     });
   }

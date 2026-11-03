@@ -414,9 +414,13 @@ describe("perzistence, most a správa", () => {
     expect((s.exportsReg.get("spravaPanels") as () => any[])()[0].id).toBe("kresby");
     const act = (id: string) => def.actions.find((a: any) => a.id === id).handler;
 
-    await act("dat")({ caller: s.henry, params: { player: s.henry, co: "sada" } });
+    // Správa posílá jen { id, nickname } (jiný runtime: nativní Player by dorazil prázdný), modul si hráče najde sám
+    const me = s.ref(s.henry);
+    await act("dat")({ caller: me, params: { player: s.ref(s.henry), co: "sada" } });
     expect(s.henry.count("kresby:pergamen")).toBe(3);
-    expect(await act("postavit")({ caller: s.henry, params: { druh: "deska", sloupce: 2, radky: 1, sirka: 1 } })).toContain("Vývěska");
+    expect(await act("dat")({ caller: me, params: { player: { id: 999, nickname: "Pryč" }, co: "sada" } })).toMatchObject({ ok: false, message: expect.stringContaining("„Pryč“ už není ve hře") });
+    expect(await act("postavit")({ caller: { id: 999, nickname: "Pryč" }, params: { druh: "deska", sloupce: 2, radky: 1, sirka: 1 } })).toMatchObject({ ok: false });
+    expect(await act("postavit")({ caller: me, params: { druh: "deska", sloupce: 2, radky: 1, sirka: 1 } })).toContain("Vývěska");
     await tick(1100);
     const b = s.henry.last(EV.okoli).add[0];
     const c = await draw(s, b);
@@ -425,18 +429,43 @@ describe("perzistence, most a správa", () => {
     await s.pick(s.henry, "Nechat viset bez podpisu");
     await tick(0);
 
-    const table = (await act("okoli")({ caller: s.henry, params: { dosah: 60 } })).table;
+    expect(await act("okoli")({ caller: { id: 999, nickname: "Pryč" }, params: { dosah: 60 } })).toMatchObject({ ok: false });
+    const table = (await act("okoli")({ caller: me, params: { dosah: 60 } })).table;
     expect(table.rows).toHaveLength(1);
     expect(table.rows[0]).toMatchObject({ nazev: "Hanopis", autor: "(nepodepsáno)", stav: "visí" });
     const id = table.rows[0].id;
-    expect(await act("skryt")({ caller: s.henry, params: { id } })).toContain("zabavena");
+    expect(await act("skryt")({ caller: me, params: { id } })).toContain("zabavena");
     expect(s.hans.last(EV.deska).slots[0]).toBeNull();
     await s.client(EV.chci, s.hans, { h: [c && s.henry.last(EV.deska).slots[0]?.h].filter(Boolean) });
-    expect(await act("obnovit")({ caller: s.henry, params: { id } })).toContain("vrácena");
+    expect(await act("obnovit")({ caller: me, params: { id } })).toContain("vrácena");
     expect(s.hans.last(EV.deska).slots[0]).toMatchObject({ t: "Hanopis" });
-    expect(await act("smazat")({ caller: s.henry, params: { id } })).toContain("smazána");
+    expect(await act("smazat")({ caller: me, params: { id } })).toContain("smazána");
     expect(s.hans.last(EV.deska).slots[0]).toBeNull();
-    expect((await act("stav")({ caller: s.henry, params: {} })).text).toContain("1 desek");
+    expect((await act("stav")({ caller: me, params: {} })).text).toContain("1 desek");
+    expect((await act("desky")({ caller: me, params: { dosah: 100 } })).table.rows).toHaveLength(1);
+    expect(await act("nahled")({ caller: { id: 999, nickname: "Pryč" }, params: { id: 1 } })).toMatchObject({ ok: false });
+  });
+
+  it("sprava: resourceStart přijde, když je správa ještě Loading (Exports.get hází): panel i nastavení se zaregistrují po chvíli", async () => {
+    const s = await server(); // bez správy
+    const panels: any[] = [];
+    const sets: any[] = [];
+    await s.fire("resourceStart", "sprava"); // správa ještě není v Exports: „is not running“
+    expect(panels).toEqual([]);
+    await tick(600);
+    s.imports.sprava = { registerPanel: (def: any, owner: string) => panels.push([def.id, owner]), registerSettings: (d: any, owner: string) => sets.push([d.id, owner]) };
+    await tick(300);
+    expect(panels).toEqual([["kresby", "kresby"]]);
+    expect(sets).toEqual([["kresby", "kresby"]]);
+    await tick(5000);
+    expect(panels).toHaveLength(1); // po úspěchu se neopakuje
+    // správa se zastaví dřív, než časovač doběhne: nic se nezkouší
+    s.imports.sprava = null;
+    await s.fire("resourceStart", "sprava");
+    await s.fire("resourceStop", "sprava");
+    s.imports.sprava = { registerPanel: (def: any, owner: string) => panels.push([def.id, owner]), registerSettings: () => {} };
+    await tick(2000);
+    expect(panels).toHaveLength(1);
   });
 
   it("stojan: dřevěná tabule na sloupku, jeden list, po restartu stojí znovu", async () => {
